@@ -1,16 +1,12 @@
 name: SA Retail Mid
 
-# Tier 3 소매 약국 크롤링 (Nahdi, Al-Dawaa, Whites)
-# AST 02:00~03:00 (UTC 23:00~00:00)
-# 소매 사이트는 같은 워크플로우 안에서도 sub-job으로 시간차 실행
-
 on:
   schedule:
     - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
       source_filter:
-        description: '특정 소스만 실행 (nahdi_web / al_dawaa_web / whites_web / all)'
+        description: 'Source filter (nahdi_web / al_dawaa_web / whites_web / all)'
         required: false
         default: 'all'
 
@@ -19,13 +15,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ─── 3개 소매 소스를 matrix로 실행, IP 회전 효과 극대화 ───
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
-      fail-fast: false              # 한 곳 실패해도 나머지는 계속
-      max-parallel: 1               # 순차 실행 (IP 회전 + 서버 부담 분산)
+      fail-fast: false
+      max-parallel: 1
       matrix:
         source:
           - nahdi_web
@@ -61,45 +56,10 @@ jobs:
       - name: Run crawler for ${{ matrix.source }}
         if: steps.filter.outputs.should_run == 'true'
         env:
-          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SFDA_CLIENT_ID:       ${{ secrets.SFDA_CLIENT_ID }}      # regulatory_id 보강용
-          SFDA_CLIENT_SECRET:   ${{ secrets.SFDA_CLIENT_SECRET }}
-          SOURCE_NAME:          ${{ matrix.source }}
-          TOGGLE_ID:            toggle_2
-          GITHUB_RUN_ID:        ${{ github.run_id }}
-          WORKFLOW:             sa_retail_mid
+          SOURCE_NAME: ${{ matrix.source }}
+          TOGGLE_ID: toggle_2
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          WORKFLOW: sa_retail_mid
         run: python main.py --source ${{ matrix.source }}
-
-      - name: Upload logs on failure
-        if: failure() && steps.filter.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: sa-retail-${{ matrix.source }}-${{ github.run_id }}
-          path: logs/
-          retention-days: 7
-
-  # ─── 매트릭스 전체 결과 요약 후 Slack ───
-  notify:
-    needs: crawl
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - name: Notify Slack
-        uses: slackapi/slack-github-action@v1.27.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        with:
-          payload: |
-            {
-              "text": "🚨 SA Retail Mid — 일부 또는 전체 소스 실패",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*SA Retail Mid 실패*\nRun: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ github.run_id }}>"
-                  }
-                }
-              ]
-            }
