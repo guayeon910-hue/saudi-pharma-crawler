@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import httpx
+
 # ── 프로젝트 루트 계산 ──
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "products.db"
@@ -890,6 +892,269 @@ def _fetch_references(drug: TargetDrug) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════
 # 보고서 생성
 # ═══════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GitHub Actions 트리거 + 원클릭 전체 파이프라인
+# ═══════════════════════════════════════════════════════════════════════════
+
+_GH_TOKEN = os.environ.get("GH_TOKEN", "")
+_GH_REPO = os.environ.get("GH_REPO", "")
+
+_full_pipeline_state: dict = {"running": False, "step": "", "message": ""}
+
+
+def _get_gh_auth() -> tuple[str, str]:
+    """GitHub token + repo를 환경변수 또는 gh CLI에서 가져온다."""
+    token = _GH_TOKEN
+    repo = _GH_REPO
+
+    if not token:
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                token = result.stdout.strip()
+        except Exception:
+            pass
+
+    if not repo:
+        try:
+            result = subprocess.run(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                capture_output=True, text=True, timeout=5,
+                cwd=str(ROOT),
+            )
+            if result.returncode == 0:
+                repo = result.stdout.strip()
+        except Exception:
+            pass
+
+    return token, repo
+
+
+def _trigger_workflow(token: str, repo: str, workflow: str, inputs: dict) -> Optional[str]:
+    """GitHub Actions workflow_dispatch 트리거. run_id URL 반환."""
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    body = {"ref": "master", "inputs": inputs}
+
+    with httpx.Client(timeout=10) as client:
+        resp = client.post(url, headers=headers, json=body)
+        if resp.status_code == 204:
+            return f"https://github.com/{repo}/actions"
+        return None
+
+
+def _wait_for_workflows(token: str, repo: str, run_ids: list[int], timeout_sec: int = 600) -> dict:
+    """워크플로 실행 완료 대기. 상태 반환."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    start = time.time()
+    with httpx.Client(timeout=15) as client:
+        while time.time() - start < timeout_sec:
+            all_done = True
+            statuses = {}
+            for rid in run_ids:
+                try:
+                    resp = client.get(
+                        f"https://api.github.com/repos/{repo}/actions/runs/{rid}",
+                        headers=headers,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        statuses[rid] = data.get("conclusion") or data.get("status", "unknown")
+                        if data.get("status") != "completed":
+                            all_done = False
+                except Exception:
+                    all_done = False
+            if all_done:
+                return statuses
+            time.sleep(15)
+    return {"timeout": True}
+
+
+def _get_latest_run_ids(token: str, repo: str, workflows: list[str]) -> list[int]:
+    """각 워크플로의 최신 실행 ID를 가져온다."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    ids = []
+    with httpx.Client(timeout=10) as client:
+        for wf in workflows:
+            try:
+                resp = client.get(
+                    f"https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs",
+                    headers=headers,
+                    params={"per_page": 1, "branch": "master"},
+                )
+                if resp.status_code == 200:
+                    runs = resp.json().get("workflow_runs", [])
+                    if runs:
+                        ids.append(runs[0]["id"])
+            except Exception:
+                pass
+    return ids
+
+
+@app.post("/api/full-pipeline/{product_key}")
+async def start_full_pipeline(product_key: str):
+    """원클릭: GitHub Actions 크롤링 트리거 -> DB 적재 대기 -> Claude 분석 -> 보고서 생성."""
+    if _full_pipeline_state["running"]:
+        raise HTTPException(409, "이미 전체 파이프라인 실행 중")
+
+    drug = _registry.get_drug(product_key)
+    if not drug:
+        raise HTTPException(404, f"품목 '{product_key}' 없음")
+
+    token, repo = _get_gh_auth()
+    if not token or not repo:
+        raise HTTPException(503, "GitHub 인증 정보 없음 (gh auth login 필요)")
+
+    _full_pipeline_state["running"] = True
+    _full_pipeline_state["step"] = "trigger"
+    _full_pipeline_state["message"] = "GitHub Actions 트리거 중..."
+
+    async def _full_bg():
+        try:
+            # Step 1: GitHub Actions 크롤링 트리거
+            await _emit({"phase": "full-pipeline", "step": "trigger",
+                          "message": "GitHub Actions 워크플로 트리거 중..."})
+
+            workflows_to_run = [
+                ("sa_api_light.yml", {"toggle_id": "toggle_1", "dry_run": "false"}),
+                ("sa_retail_mid.yml", {"source_filter": "all"}),
+                ("sa_ai_search.yml", {"dry_run": "false"}),
+            ]
+
+            triggered = 0
+            for wf, inputs in workflows_to_run:
+                result = _trigger_workflow(token, repo, wf, inputs)
+                if result:
+                    triggered += 1
+                    await _emit({"phase": "full-pipeline", "step": "trigger",
+                                  "message": f"{wf} 트리거 완료"})
+                else:
+                    await _emit({"phase": "log", "message": f"{wf} 트리거 실패"})
+
+            if triggered == 0:
+                await _emit({"phase": "log", "message": "워크플로 트리거 실패"})
+                _full_pipeline_state["running"] = False
+                return
+
+            await _emit({"phase": "full-pipeline", "step": "trigger",
+                          "message": f"{triggered}개 워크플로 트리거 완료"})
+
+            # Step 2: 크롤링 완료 대기
+            _full_pipeline_state["step"] = "crawling"
+            _full_pipeline_state["message"] = "GitHub Actions 크롤링 대기 중..."
+            await _emit({"phase": "full-pipeline", "step": "crawling",
+                          "message": "Actions 러너에서 크롤링 진행 중... (최대 10분 대기)"})
+
+            await asyncio.sleep(5)
+            wf_files = [w[0] for w in workflows_to_run]
+            run_ids = _get_latest_run_ids(token, repo, wf_files)
+
+            if run_ids:
+                await _emit({"phase": "full-pipeline", "step": "crawling",
+                              "message": f"{len(run_ids)}개 워크플로 모니터링 중..."})
+
+                loop = asyncio.get_event_loop()
+                statuses = await loop.run_in_executor(
+                    None, _wait_for_workflows, token, repo, run_ids, 600
+                )
+
+                success_count = sum(1 for v in statuses.values() if v == "success")
+                await _emit({"phase": "full-pipeline", "step": "crawling",
+                              "message": f"크롤링 완료: {success_count}/{len(run_ids)} 성공"})
+            else:
+                await _emit({"phase": "log", "message": "워크플로 실행 ID를 찾을 수 없음, 60초 대기"})
+                await asyncio.sleep(60)
+
+            # Step 3: Claude 분석
+            _full_pipeline_state["step"] = "analyze"
+            _full_pipeline_state["message"] = "Claude 분석 중..."
+            await _emit({"phase": "full-pipeline", "step": "analyze",
+                          "message": f"[{drug.trade_name}] Claude 분석 시작"})
+
+            analysis = _analyze_single_product(drug, use_perplexity=True)
+            verdict = analysis.get("verdict", "분석실패")
+            await _emit({"phase": "full-pipeline", "step": "analyze",
+                          "message": f"분석 완료: {verdict}"})
+
+            # Step 4: 참고문헌
+            _full_pipeline_state["step"] = "refs"
+            refs = _fetch_references(drug)
+            await _emit({"phase": "full-pipeline", "step": "refs",
+                          "message": f"참고문헌 {len(refs)}건 수집"})
+
+            # Step 5: 보고서
+            _full_pipeline_state["step"] = "report"
+            pdf = _generate_report_for_pipeline(drug, analysis, refs, None)
+            if pdf:
+                await _emit({"phase": "full-pipeline", "step": "report",
+                              "message": f"보고서 생성 완료: {pdf}"})
+
+            # 결과 저장
+            _pipeline_tasks[product_key] = {
+                "status": "done",
+                "step": "done",
+                "step_label": "완료",
+                "result": analysis,
+                "refs": refs,
+                "pdf": pdf,
+                "started_at": time.time(),
+            }
+
+            _full_pipeline_state["step"] = "done"
+            _full_pipeline_state["message"] = "전체 파이프라인 완료"
+            await _emit({"phase": "full-pipeline", "step": "done",
+                          "message": "전체 파이프라인 완료 ✓ (크롤링 + 분석 + 보고서)"})
+
+        except Exception as e:
+            await _emit({"phase": "log", "message": f"전체 파이프라인 오류: {e}"})
+            _full_pipeline_state["step"] = "error"
+            _full_pipeline_state["message"] = str(e)[:200]
+        finally:
+            _full_pipeline_state["running"] = False
+
+    asyncio.create_task(_full_bg())
+    return {"status": "started", "product_key": product_key, "repo": repo}
+
+
+@app.get("/api/full-pipeline/status")
+async def get_full_pipeline_status():
+    return _full_pipeline_state
+
+
+@app.post("/api/trigger-crawl")
+async def trigger_crawl_only():
+    """GitHub Actions 크롤링만 트리거 (분석 없이)."""
+    token, repo = _get_gh_auth()
+    if not token or not repo:
+        raise HTTPException(503, "GitHub 인증 정보 없음")
+
+    results = {}
+    workflows = [
+        ("sa_api_light.yml", {"toggle_id": "toggle_1", "dry_run": "false"}),
+        ("sa_retail_mid.yml", {"source_filter": "all"}),
+        ("sa_ai_search.yml", {"dry_run": "false"}),
+    ]
+    for wf, inputs in workflows:
+        url = _trigger_workflow(token, repo, wf, inputs)
+        results[wf] = "triggered" if url else "failed"
+        if url:
+            await _emit({"phase": "crawl-trigger", "message": f"{wf} 트리거 완료"})
+
+    return {"status": "triggered", "workflows": results, "actions_url": f"https://github.com/{repo}/actions"}
+
 
 def _generate_report_for_pipeline(
     drug: TargetDrug,

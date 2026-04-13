@@ -185,13 +185,14 @@ header .subtitle{font-size:.8rem;opacity:.75;margin-top:2px}
     <h2>진출 적합 분석</h2>
     <div class="analysis-section">
       <select class="product-select" id="productSelect"><option value="">품목을 선택하세요</option></select>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" id="btnRun" disabled onclick="runPipeline()">분석 실행</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="btnFull" disabled onclick="runFullPipeline()" style="background:linear-gradient(135deg,#059669,#0d9488);padding:10px 28px">전체 실행 (크롤링+분석+보고서)</button>
+        <button class="btn btn-primary" id="btnRun" disabled onclick="runPipeline()">분석만</button>
         <button class="btn btn-purple" id="btnPplx" onclick="runPerplexity()" title="Perplexity 시장 분석">Perplexity</button>
       </div>
     </div>
     <div class="progress-steps" id="progressBar" style="display:none">
-      <div class="pstep" id="ps-crawl"><div class="circle">1</div><div class="plabel">크롤링</div></div>
+      <div class="pstep" id="ps-crawl"><div class="circle">1</div><div class="plabel">Actions 크롤링</div></div>
       <div class="pconn" id="pc-1"></div>
       <div class="pstep" id="ps-analyze"><div class="circle">2</div><div class="plabel">Claude 분석</div></div>
       <div class="pconn" id="pc-2"></div>
@@ -360,6 +361,7 @@ async function loadProducts() {
     sel.addEventListener('change', () => {
       selectedKey = sel.value;
       document.getElementById('btnRun').disabled = !selectedKey;
+      document.getElementById('btnFull').disabled = !selectedKey;
     });
 
     renderOutlier(records);
@@ -469,7 +471,74 @@ function updateStep(step) {
 }
 
 // ═══════════════════════════════════════════
-// Pipeline
+// Full Pipeline (crawl + analyze + report)
+// ═══════════════════════════════════════════
+async function runFullPipeline() {
+  if (!selectedKey) return;
+  const btn = document.getElementById('btnFull');
+  const btnRun = document.getElementById('btnRun');
+  btn.disabled = true;
+  btnRun.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 전체 실행 중...';
+  ['resultCard','priceCard','aiSourcesCard','pplxCard','papersCard','reportCard'].forEach(id => document.getElementById(id).style.display = 'none');
+  logCount = 0;
+  document.getElementById('logBody').innerHTML = '';
+  showProgress();
+  refreshSites();
+
+  try {
+    const r = await fetch(API+'/api/full-pipeline/'+selectedKey, {method:'POST'});
+    if (!r.ok) {
+      const err = await r.json();
+      throw new Error(err.detail);
+    }
+    const data = await r.json();
+    appendLog({phase:'full-pipeline', message:'전체 파이프라인 시작 (repo: '+data.repo+')'});
+    connectSSE();
+
+    // Poll full pipeline status
+    const fpPoll = setInterval(async () => {
+      try {
+        const sr = await fetch(API+'/api/full-pipeline/status');
+        if (!sr.ok) return;
+        const st = await sr.json();
+
+        // Update progress bar based on step
+        if (st.step === 'trigger' || st.step === 'crawling') updateStep('crawl');
+        else if (st.step === 'analyze') updateStep('analyze');
+        else if (st.step === 'refs') updateStep('refs');
+        else if (st.step === 'report') updateStep('report');
+        else if (st.step === 'done') {
+          updateStep('done');
+          clearInterval(fpPoll);
+          // Fetch result
+          const rr = await fetch(API+'/api/pipeline/'+selectedKey+'/result');
+          if (rr.ok) renderResult(await rr.json());
+          refreshSites();
+          loadMacro();
+          loadAllAISources();
+          btn.disabled = false;
+          btnRun.disabled = false;
+          btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+        } else if (st.step === 'error') {
+          clearInterval(fpPoll);
+          btn.disabled = false;
+          btnRun.disabled = false;
+          btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+        }
+      } catch(e) {}
+    }, 5000);
+
+  } catch(e) {
+    btn.disabled = false;
+    btnRun.disabled = false;
+    btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+    appendLog({phase:'error', message:'전체 파이프라인 시작 실패: '+e.message});
+  }
+}
+
+// ═══════════════════════════════════════════
+// Pipeline (analyze only, no crawl)
 // ═══════════════════════════════════════════
 async function runPipeline() {
   if (!selectedKey) return;
