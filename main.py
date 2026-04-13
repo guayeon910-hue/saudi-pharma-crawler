@@ -40,6 +40,9 @@ from dotenv import load_dotenv
 load_dotenv()
 from typing import Any, Callable
 
+# snippets path for GitHub Actions runner
+sys.path.insert(0, str(Path(__file__).resolve().parent / "assets" / "snippets"))
+
 import httpx
 import yaml
 from supabase import create_client
@@ -56,7 +59,7 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 
-SOURCES_YAML = Path(__file__).parent / "sources.yaml"
+SOURCES_YAML = Path(__file__).resolve().parent / "assets" / "sources.yaml"
 
 
 # ─── 크롤러 dispatch table ─────────────────────────────
