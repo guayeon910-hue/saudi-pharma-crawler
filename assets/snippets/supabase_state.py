@@ -134,14 +134,17 @@ class CircuitBreaker:
         self.domain = domain
 
     def _get(self) -> CircuitState:
-        resp = (
-            self.sb.table("saudi_circuit_state")
-            .select("*")
-            .eq("domain", self.domain)
-            .maybe_single()
-            .execute()
-        )
-        if not resp.data:
+        try:
+            resp = (
+                self.sb.table("saudi_circuit_state")
+                .select("*")
+                .eq("domain", self.domain)
+                .maybe_single()
+                .execute()
+            )
+        except Exception:
+            return CircuitState(state="closed", failures=0, opened_at=None)
+        if resp is None or not getattr(resp, "data", None):
             return CircuitState(state="closed", failures=0, opened_at=None)
         opened_at = _parse_ts(resp.data["opened_at"]) if resp.data.get("opened_at") else None
         return CircuitState(
