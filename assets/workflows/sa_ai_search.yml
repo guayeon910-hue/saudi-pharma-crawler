@@ -1,0 +1,122 @@
+name: SA AI Search
+
+# AI 자율 서칭 파이프라인 (Phase A→B→C)
+# 주 2회: 화/금 UTC 01:00 (AST 04:00)
+
+on:
+  schedule:
+    - cron: '0 1 * * 2,5'
+  workflow_dispatch:
+    inputs:
+      drug_id:
+        description: '특정 약품만 실행 (기본: 전체 8개)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'DB 저장 생략'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: sa-ai-search
+  cancel-in-progress: false    # 취소 대신 큐잉
+
+jobs:
+  ai-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install httpx python-dotenv lxml supabase preon
+
+      - name: Run AI Search
+        env:
+          # LLM (필수)
+          CLAUDE_API_KEY:       ${{ secrets.CLAUDE_API_KEY }}
+
+          # Supabase (필수)
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+          # Perplexity (선택 — 있으면 소스 발견 가속)
+          PERPLEXITY_API_KEY:   ${{ secrets.PERPLEXITY_API_KEY }}
+
+          # 런타임 파라미터
+          DRUG_ID:              ${{ github.event.inputs.drug_id || '' }}
+          DRY_RUN:              ${{ github.event.inputs.dry_run || 'false' }}
+          GITHUB_RUN_ID:        ${{ github.run_id }}
+        run: python ai_search.py
+
+      - name: Print token usage
+        if: always()
+        run: |
+          if [ -f reports/ai_search_result.json ]; then
+            echo "=== AI Search Token Usage ==="
+            python3 -c "
+          import json
+          with open('reports/ai_search_result.json') as f:
+              data = json.load(f)
+          usage = data.get('llm_token_usage', {})
+          print(json.dumps(usage, indent=2))
+          print(f'Drugs processed: {data.get(\"drugs_processed\", 0)}')
+          print(f'Sources found:   {data.get(\"total_sources_found\", 0)}')
+          print(f'Sources valid:   {data.get(\"total_sources_valid\", 0)}')
+          print(f'Total records:   {data.get(\"total_records\", 0)}')
+          print(f'Total errors:    {data.get(\"total_errors\", 0)}')
+          print(f'Duration:        {data.get(\"duration_sec\", 0)}s')
+          "
+          else
+            echo "No result file found"
+          fi
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sa-ai-search-logs-${{ github.run_id }}
+          path: |
+            logs/
+            reports/ai_search_result.json
+          retention-days: 7
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.27.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "🚨 SA AI Search 크롤러 실패",
+              "blocks": [
+                {
+                  "type": "section",
+                  "fields": [
+                    {"type": "mrkdwn", "text": "*Workflow:*\nsa_ai_search"},
+                    {"type": "mrkdwn", "text": "*Run ID:*\n${{ github.run_id }}"},
+                    {"type": "mrkdwn", "text": "*Drug ID:*\n${{ github.event.inputs.drug_id || '전체' }}"},
+                    {"type": "mrkdwn", "text": "*Commit:*\n${{ github.sha }}"}
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {"type": "plain_text", "text": "로그 보기"},
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }

@@ -1,0 +1,796 @@
+{
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+  "total_records_sfda": 8756,
+  "total_pages_sfda": 876,
+  "records": [
+    {
+      "product_id": "SFDA_1807245616",
+      "trade_name": "0.9% W/V SODIUM CHLORIDE B.P",
+      "price": 0.75,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_1-585-09",
+      "trade_name": "ORTHOVISC 15MG-ML SOLU FOR I-A Injection",
+      "price": 249.55,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=2<5, median=0.75, ratio=332.7x (>10.0x)",
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_33-390-08",
+      "trade_name": "ORS New (50 SACHET)",
+      "price": 30.3,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "solution",
+      "anomaly_reason": "n=2<5, median=0.75, ratio=40.4x (>10.0x)",
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_2710246119",
+      "trade_name": "ORS New (10 SACHET)",
+      "price": 7.2,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "solution",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_2710246117",
+      "trade_name": "ORS 30GM SACHET",
+      "price": 9.3,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "solution",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_1811258617",
+      "trade_name": "ORENCIA 250MG POWDER FOR SOLUTION FOR IN",
+      "price": 1124.15,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "infusion",
+      "anomaly_reason": "n=4<5, median=7.20, ratio=156.1x (>10.0x)",
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_1-960-14",
+      "trade_name": "ORENCIA 125MG Solution for injection in ",
+      "price": 4501.5,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=4<5, median=7.20, ratio=625.2x (>10.0x)",
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_21-37-10",
+      "trade_name": "ORELOX 100MG TABLETS",
+      "price": 30.8,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_1506222204",
+      "trade_name": "OSELTA 75MG CAPSULES",
+      "price": 79.85,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "capsule",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_22-116-84",
+      "trade_name": "OSPEN 500",
+      "price": 21.25,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 1
+    },
+    {
+      "product_id": "SFDA_23-116-84",
+      "trade_name": "OSPEN 1000 ",
+      "price": 27.4,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_2401233159",
+      "trade_name": "ORATAB 100MG F.C. TABLETS",
+      "price": 49.85,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_0209245851",
+      "trade_name": "OPTIPRED 1% OPTHALMIC SUSP.",
+      "price": 14.45,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "prednisolone",
+      "inn_match": "exact",
+      "dosage_form": "suspension",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_1506222210",
+      "trade_name": "OPTIMOL 0.5% OPHTHALMIC SOLUTION",
+      "price": 31.5,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "drops",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_12-553-09",
+      "trade_name": "OPTIRAY 300MG-ML SOLUTION FOR IV. Inject",
+      "price": 3180.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=11<20, K=110.39>4.93, ratio=130.7x (>5.0x)",
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_13-553-09",
+      "trade_name": "OPTIRAY 300MG-ML SOLUTION FOR IV. Inject",
+      "price": 1908.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=11<20, K=66.22>4.93, ratio=78.4x (>5.0x)",
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_1505245305",
+      "trade_name": "ORALITE 28GM SACHETS",
+      "price": 12.0,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "solution",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_0409234104",
+      "trade_name": "OPTIZOLIN OPTHALMIC SOLUTION",
+      "price": 9.0,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "drops",
+      "anomaly_reason": null,
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_201-277-09",
+      "trade_name": "ORATAB 100 mg",
+      "price": 128.6,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": "n=13<20, K=5.76>4.93, ratio=7.2x (>5.0x)",
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_6-553-09",
+      "trade_name": "OPTIRAY 350MG-ML SOLUTION FOR IV. Inject",
+      "price": 4637.5,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=208.86>4.93, ratio=259.8x (>5.0x)",
+      "page": 2
+    },
+    {
+      "product_id": "SFDA_4-553-09",
+      "trade_name": "OPTIRAY 350MG-ML SOLUTION FOR IV. Inject",
+      "price": 3710.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=167.08>4.93, ratio=207.8x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_1502269148",
+      "trade_name": "OPTIRAY 350MG-ML SOLUTION FOR IV. Inject",
+      "price": 2226.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=100.24>4.93, ratio=124.7x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_16-553-09",
+      "trade_name": "OPTIRAY 320MG-ML SOLUTION FOR IV. Inject",
+      "price": 3392.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=152.76>4.93, ratio=190.0x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_15-553-09",
+      "trade_name": "OPTIRAY 320MG-ML SOLUTION FOR IV. Inject",
+      "price": 4240.0,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=190.96>4.93, ratio=237.5x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_1502269146",
+      "trade_name": "OPTIRAY 320MG-ML SOLUTION FOR IV. Inject",
+      "price": 1778.35,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=80.07>4.93, ratio=99.6x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_1502269147",
+      "trade_name": "OPTIRAY 320MG-ML SOLUTION FOR IV. Inject",
+      "price": 1852.45,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=83.41>4.93, ratio=103.8x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_14-553-09",
+      "trade_name": "OPTIRAY 300MG-ML SOLUTION FOR IV. Inject",
+      "price": 1987.5,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=89.49>4.93, ratio=111.3x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_1801268934",
+      "trade_name": "OPTIRAY 350MG-ML SOLUTION FOR IV. Inject",
+      "price": 2318.75,
+      "confidence": 0.9105,
+      "outlier": true,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "injection",
+      "anomaly_reason": "n=13<20, K=104.41>4.93, ratio=129.9x (>5.0x)",
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_2012211487",
+      "trade_name": "OPTILONE 0.1% OPTHALMIC SUSPENTION",
+      "price": 13.75,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "suspension",
+      "anomaly_reason": null,
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_0407233843",
+      "trade_name": "PANDA EXTRA CAPLETS",
+      "price": 4.65,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 3
+    },
+    {
+      "product_id": "SFDA_0603245023",
+      "trade_name": "PANDA 500MG CAPLET",
+      "price": 3.2,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": null,
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2511246335",
+      "trade_name": "PANADREX 500 MG TAB",
+      "price": 5.05,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2511246333",
+      "trade_name": "PANADREX 500 MG TAB",
+      "price": 9.4,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2811246350",
+      "trade_name": "Panadrex baby and infant ",
+      "price": 5.8,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "syrup",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2811246352",
+      "trade_name": "Panadrex baby and infant",
+      "price": 3.5,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "syrup",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_3006222293",
+      "trade_name": "PANADOL SOLUBLE 500MG TAB",
+      "price": 14.25,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_0509222584",
+      "trade_name": "PANADOL SINUS CAPLET",
+      "price": 13.6,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2-385-03",
+      "trade_name": "PANADOL NIGHT CAPLET",
+      "price": 11.6,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_0206257530",
+      "trade_name": "PANADOL EXTRA TAB",
+      "price": 8.0,
+      "confidence": 0.9105,
+      "outlier": false,
+      "inn_name": null,
+      "inn_match": "none",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2207257788",
+      "trade_name": "PANADOL EXTEND 665MG F.C. TABLETS",
+      "price": 15.75,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "paracetamol",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 4
+    },
+    {
+      "product_id": "SFDA_2801256767",
+      "trade_name": "PANTOZOL 40MG TAB",
+      "price": 49.25,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_2801256768",
+      "trade_name": "PANTOZOL 40MG TAB",
+      "price": 87.95,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_2004257248",
+      "trade_name": "PANTOZOL 40MG I.V Powder for injection",
+      "price": 26.6,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "injection",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_1009245899",
+      "trade_name": "PANTOZOL 20MG E.C TAB",
+      "price": 54.8,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_1009245900",
+      "trade_name": "PANTOZOL 20MG E.C TAB",
+      "price": 30.7,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_10-491-08",
+      "trade_name": "PANTOVER 40MG E.C. TABLETS",
+      "price": 50.8,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_8-491-08",
+      "trade_name": "PANTOVER 40MG E.C. TABLETS",
+      "price": 26.6,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_9-491-08",
+      "trade_name": "PANTOVER 40MG E.C. TABLETS",
+      "price": 28.5,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_1609258229",
+      "trade_name": "PANTOMAX 40MG E.C.TABLETS",
+      "price": 56.45,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    },
+    {
+      "product_id": "SFDA_28-370-06",
+      "trade_name": "PANTOMAX 20MG E.C. TABLETS",
+      "price": 39.4,
+      "confidence": 0.9705,
+      "outlier": false,
+      "inn_name": "pantoprazole",
+      "inn_match": "exact",
+      "dosage_form": "tablet",
+      "anomaly_reason": null,
+      "page": 5
+    }
+  ],
+  "page_times": [
+    {
+      "page": 1,
+      "time": 2.963,
+      "items": 10
+    },
+    {
+      "page": 2,
+      "time": 0.459,
+      "items": 10
+    },
+    {
+      "page": 3,
+      "time": 0.467,
+      "items": 10
+    },
+    {
+      "page": 4,
+      "time": 0.491,
+      "items": 10
+    },
+    {
+      "page": 5,
+      "time": 0.499,
+      "items": 10
+    }
+  ],
+  "metrics": {
+    "counters": {
+      "crawl_attempts": 1,
+      "records_processed": 50,
+      "outliers_detected": 16,
+      "crawl_success": 1
+    },
+    "page_fetch_sec": {
+      "count": 5,
+      "mean": 0.976,
+      "p95": 2.963,
+      "max": 2.963
+    },
+    "crawl_duration_sec": {
+      "count": 1,
+      "mean": 5.061,
+      "p95": 5.061,
+      "max": 5.061
+    }
+  },
+  "audit_count": 56,
+  "total_time": 5.06,
+  "reputation": 0.7343,
+  "reputation_bonus": 0.0234,
+  "existing_prices": [
+    0.75,
+    7.2,
+    9.3,
+    30.8,
+    79.85,
+    21.25,
+    27.4,
+    49.85,
+    14.45,
+    31.5,
+    12.0,
+    9.0,
+    13.75,
+    4.65,
+    3.2,
+    5.05,
+    9.4,
+    5.8,
+    3.5,
+    14.25,
+    13.6,
+    11.6,
+    8.0,
+    15.75,
+    49.25,
+    87.95,
+    26.6,
+    54.8,
+    30.7,
+    50.8,
+    26.6,
+    28.5,
+    56.45,
+    39.4
+  ],
+  "rep_history": [
+    {
+      "run": 1,
+      "score": 0.55,
+      "success": true
+    },
+    {
+      "run": 2,
+      "score": 0.595,
+      "success": true
+    },
+    {
+      "run": 3,
+      "score": 0.6355,
+      "success": true
+    },
+    {
+      "run": 4,
+      "score": 0.672,
+      "success": true
+    },
+    {
+      "run": 5,
+      "score": 0.7048,
+      "success": true
+    },
+    {
+      "run": 6,
+      "score": 0.7343,
+      "success": true
+    },
+    {
+      "run": 7,
+      "score": 0.7609,
+      "success": true
+    },
+    {
+      "run": 8,
+      "score": 0.6848,
+      "success": false
+    },
+    {
+      "run": 9,
+      "score": 0.7163,
+      "success": true
+    },
+    {
+      "run": 10,
+      "score": 0.7447,
+      "success": true
+    },
+    {
+      "run": 11,
+      "score": 0.7702,
+      "success": true
+    },
+    {
+      "run": 12,
+      "score": 0.7932,
+      "success": true
+    },
+    {
+      "run": 13,
+      "score": 0.7139,
+      "success": false
+    },
+    {
+      "run": 14,
+      "score": 0.7425,
+      "success": true
+    },
+    {
+      "run": 15,
+      "score": 0.7682,
+      "success": true
+    },
+    {
+      "run": 16,
+      "score": 0.7914,
+      "success": true
+    },
+    {
+      "run": 17,
+      "score": 0.8123,
+      "success": true
+    },
+    {
+      "run": 18,
+      "score": 0.831,
+      "success": true
+    },
+    {
+      "run": 19,
+      "score": 0.8479,
+      "success": true
+    },
+    {
+      "run": 20,
+      "score": 0.8631,
+      "success": true
+    }
+  ]
+}

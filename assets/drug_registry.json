@@ -1,0 +1,153 @@
+[
+  {
+    "id": "omethyl-cutielet",
+    "drug_type": "개량신약",
+    "trade_name": "Omethyl Cutielet",
+    "ingredient": "Omega-3-Acid Ethyl Esters 90 2g",
+    "strength": "2g",
+    "dosage_form": "Pouch",
+    "target_countries": [
+      "나이지리아",
+      "싱가포르",
+      "헝가리",
+      "파나마",
+      "우루과이"
+    ],
+    "target_regions": [
+      "중동/아프리카",
+      "아시아",
+      "유럽",
+      "중남미"
+    ],
+    "added_at": "2026-04-12T08:12:02.084141+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "rosumeg-combigel",
+    "drug_type": "개량신약",
+    "trade_name": "Rosumeg Combigel",
+    "ingredient": "Rosuvastatin 5mg or 10mg + Omega-3-Acid Ethyl Esters 90 1g",
+    "strength": "5/1000, 10/1000",
+    "dosage_form": "Cap.",
+    "target_countries": [
+      "알제리",
+      "사우디",
+      "남아공",
+      "모로코",
+      "파나마",
+      "우루과이"
+    ],
+    "target_regions": [
+      "중동/아프리카",
+      "중남미"
+    ],
+    "added_at": "2026-04-12T08:12:02.084141+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "atmeg-combigel",
+    "drug_type": "개량신약",
+    "trade_name": "Atmeg Combigel",
+    "ingredient": "Atorvastatin 10mg + Omega-3-Acid Ethyl Esters 90 1g",
+    "strength": "10/1000",
+    "dosage_form": "Cap.",
+    "target_countries": [
+      "헝가리"
+    ],
+    "target_regions": [
+      "유럽"
+    ],
+    "added_at": "2026-04-12T08:12:02.084141+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "ciloduo",
+    "drug_type": "개량신약",
+    "trade_name": "Ciloduo",
+    "ingredient": "Cilostazol 200mg + Rosuvastatin 10mg Cilostazol 200mg + Rosuvastatin 20mg",
+    "strength": "200/10mg, 200/20mg",
+    "dosage_form": "Tab.",
+    "target_countries": [
+      "인도네시아",
+      "몽골"
+    ],
+    "target_regions": [
+      "아시아"
+    ],
+    "added_at": "2026-04-12T08:12:02.085130+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "gastiin-cr",
+    "drug_type": "개량신약",
+    "trade_name": "Gastiin CR",
+    "ingredient": "Mosapride Citrate 15 mg",
+    "strength": "15mg",
+    "dosage_form": "Tab.",
+    "target_countries": [
+      "아제르바이잔"
+    ],
+    "target_regions": [
+      "CIS"
+    ],
+    "added_at": "2026-04-12T08:12:02.085130+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "sereterol-activair",
+    "drug_type": "일반제",
+    "trade_name": "Sereterol Activair",
+    "ingredient": "Fluticasone Propionate 250μg or 500μg + Salmeterol 50μg",
+    "strength": "250/50, 500/50",
+    "dosage_form": "Inhaler",
+    "target_countries": [
+      "UAE",
+      "레바논",
+      "쿠웨이트",
+      "모로코",
+      "싱가포르",
+      "브루나이"
+    ],
+    "target_regions": [
+      "중동/아프리카",
+      "아시아"
+    ],
+    "added_at": "2026-04-12T08:12:02.085130+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "gadvoa-inj",
+    "drug_type": "일반제",
+    "trade_name": "Gadvoa Inj.",
+    "ingredient": "Gadobutrol 604.72 mg",
+    "strength": "5mL, 7.5mL",
+    "dosage_form": "PFS",
+    "target_countries": [
+      "홍콩"
+    ],
+    "target_regions": [
+      "아시아"
+    ],
+    "added_at": "2026-04-12T08:12:02.085130+00:00",
+    "source": "excel"
+  },
+  {
+    "id": "hydrine",
+    "drug_type": "항암제",
+    "trade_name": "Hydrine",
+    "ingredient": "Hydroxyurea 500mg",
+    "strength": "500mg",
+    "dosage_form": "Cap.",
+    "target_countries": [
+      "리비아",
+      "뉴질랜드",
+      "호주"
+    ],
+    "target_regions": [
+      "중동/아프리카",
+      "오세아니아"
+    ],
+    "added_at": "2026-04-12T08:12:02.085130+00:00",
+    "source": "excel"
+  }
+]

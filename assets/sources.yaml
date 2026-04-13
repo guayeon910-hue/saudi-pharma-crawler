@@ -1,0 +1,276 @@
+# sources.yaml — 사우디 크롤링 소스 설정
+# 새 소스를 추가할 때 이 포맷대로 엔트리를 늘린다.
+# 코드는 이 파일을 읽어 toggle_id별로 파이프라인을 구성한다.
+#
+# 필드 해설:
+#   tier: 1(규제/공식) ~ 5(대형 상거래) — sources.md 참조
+#   access_method: api_first | html_static | html_dynamic | login_required
+#   auth: none | api_key | oauth2 | session_cookie
+#   cron_slot: cron 식 (UTC 기준). 다른 워크플로우와 겹치지 않도록
+#   confidence_default: 0.50~0.95
+#   state_storage: 이 소스가 상태를 저장할 Supabase 테이블
+#   circuit_breaker_threshold: 연속 N회 실패 시 차단
+
+version: 1
+country: saudi_arabia
+last_reviewed: "2026-04-09"
+
+sources:
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 1: 규제/공식
+  # ─────────────────────────────────────────────────────────
+  sfda_api:
+    tier: 1
+    access_method: api_first
+    auth: oauth2
+    url_seed: "https://developer.sfda.gov.sa/apidoc/registered-drug-service/84"
+    oauth_token_url: "https://developer.sfda.gov.sa/oauth/token"
+    secrets_required:
+      - SFDA_CLIENT_ID
+      - SFDA_CLIENT_SECRET
+    robots_checked: "2026-04-09"
+    tos_reviewed: "2026-04-09"
+    fields_covered:
+      - regulatory_id
+      - trade_name
+      - scientific_name
+      - strength
+      - dosage_form
+      - price_sar
+      - manufacturer_or_marketing_company
+      - agent_or_supplier
+      - atc_code
+    fallback_for: null
+    cron_slot: "0 22 * * *"       # AST 01:00
+    confidence_default: 0.92
+    state_storage: saudi_api_quota
+    rate_limit_qps: 2.0
+    circuit_breaker_threshold: 5
+    workflow: sa_api_light
+
+  sfda_drugs_list_html:
+    tier: 1
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.sfda.gov.sa/en/drugs-list"
+    fields_covered:
+      - regulatory_id
+      - trade_name
+      - scientific_name
+      - strength
+      - dosage_form
+      - price_sar
+    fallback_for: sfda_api
+    cron_slot: "30 22 * * *"
+    confidence_default: 0.85
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.5
+    circuit_breaker_threshold: 5
+    workflow: sa_api_light
+
+  sfda_companies:
+    tier: 1
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.sfda.gov.sa/en/drug-companies"
+    purpose: supplier_master
+    fields_covered:
+      - manufacturer_or_marketing_company
+      - agent_or_supplier
+    cron_slot: "0 2 1 * *"         # 매월 1일 AST 05:00
+    confidence_default: 0.80
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.3
+    circuit_breaker_threshold: 3
+    workflow: sa_api_light
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 2: 공공조달
+  # ─────────────────────────────────────────────────────────
+  nupco_tenders:
+    tier: 2
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.nupco.com/en/tenders/"
+    fields_covered:
+      - trade_name
+      - price_sar       # 결과 발표 시에만
+      - agent_or_supplier
+    market_segment_default: tender
+    cron_slot: "0 0 * * 1"         # 매주 월요일 AST 03:00
+    confidence_default: 0.70
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.3
+    circuit_breaker_threshold: 3
+    workflow: sa_procurement
+    notes: "로그인 필요 페이지 접근 금지. 공개 목록/결과 문서만."
+
+  etimad_api:
+    tier: 2
+    access_method: api_first
+    auth: api_key
+    url_seed: "https://apiportal.etimad.sa/en/api_products/ContractsPlus"
+    secrets_required:
+      - ETIMAD_API_KEY
+    fields_covered:
+      - trade_name
+      - agent_or_supplier
+      - price_sar
+    market_segment_default: tender
+    cron_slot: "30 0 1 * *"        # 매월 1일
+    confidence_default: 0.85
+    state_storage: saudi_api_quota
+    rate_limit_qps: 0.5
+    circuit_breaker_threshold: 3
+    workflow: sa_procurement
+    notes: "구독 필요 가능. NAFATH 인증 우회 금지."
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 3: 소매 약국
+  # ─────────────────────────────────────────────────────────
+  nahdi_web:
+    tier: 3
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.nahdionline.com/en-sa"
+    category_paths:
+      - "/c/medicine/"
+      - "/c/personal-care/"
+    fields_covered:
+      - trade_name
+      - price_sar
+      - manufacturer_or_marketing_company
+    market_segment_default: retail
+    robots_checked: "2026-04-09"
+    tos_reviewed: "2026-04-09"
+    cron_slot: "0 23 * * *"        # AST 02:00
+    confidence_default: 0.75
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.3            # 소매 사이트는 보수적으로
+    user_agent_rotation: true
+    circuit_breaker_threshold: 5
+    workflow: sa_retail_mid
+    matching_required: true         # SFDA API로 regulatory_id 보강
+
+  al_dawaa_web:
+    tier: 3
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.al-dawaa.com/en/"
+    fields_covered:
+      - trade_name
+      - price_sar
+      - manufacturer_or_marketing_company
+    market_segment_default: retail
+    cron_slot: "20 23 * * *"       # AST 02:20 (Nahdi와 분산)
+    confidence_default: 0.75
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.3
+    user_agent_rotation: true
+    circuit_breaker_threshold: 5
+    workflow: sa_retail_mid
+    matching_required: true
+
+  whites_web:
+    tier: 3
+    access_method: html_static
+    auth: none
+    url_seed: "https://www.whites.sa/en-sa"
+    fields_covered:
+      - trade_name
+      - price_sar
+    market_segment_default: retail
+    cron_slot: "40 23 * * *"       # AST 02:40
+    confidence_default: 0.70
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.3
+    user_agent_rotation: true
+    circuit_breaker_threshold: 5
+    workflow: sa_retail_mid
+    notes: "OTC·헬스 비중 큼. Omega-3 계열에 유리."
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 4: 도매/유통 (공급처 마스터)
+  # ─────────────────────────────────────────────────────────
+  tamer_group:
+    tier: 4
+    access_method: html_static
+    auth: none
+    url_seed: "https://tamergroup.com/sectors/distribution-healthcare-fmcg"
+    purpose: supplier_master
+    fields_covered:
+      - agent_or_supplier
+    market_segment_default: wholesale
+    cron_slot: "0 1 1 * *"         # 매월 1일
+    confidence_default: 0.60
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.2
+    circuit_breaker_threshold: 3
+    workflow: sa_procurement
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 5: 대형 상거래 (보조)
+  # ─────────────────────────────────────────────────────────
+  noon_saudi:
+    tier: 5
+    access_method: html_dynamic    # Cloudflare 류 방어 가능성
+    auth: none
+    url_seed: "https://www.noon.com/saudi-en/health/main-pharmacy-sa/"
+    fields_covered:
+      - trade_name
+      - price_sar
+    market_segment_default: retail
+    cron_slot: "0 1 * * 1"         # 주 1회만
+    confidence_default: 0.55
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.2
+    user_agent_rotation: true
+    circuit_breaker_threshold: 3
+    workflow: sa_retail_mid
+    enabled: false                  # 기본 비활성. 법무 검토 후 활성화
+
+# ─────────────────────────────────────────────────────────
+# Toggle 프리셋 (UI 8개 토글과 소스 매핑)
+# ─────────────────────────────────────────────────────────
+toggles:
+  toggle_1:
+    purpose: regulatory_master
+    description: "SFDA 공식 등록 데이터 동기화"
+    sources: [sfda_api, sfda_drugs_list_html, sfda_companies]
+
+  toggle_2:
+    purpose: retail_prices
+    description: "소매 약국 3곳 가격 스냅샷"
+    sources: [nahdi_web, al_dawaa_web, whites_web]
+
+  toggle_3:
+    purpose: procurement_intel
+    description: "공공조달 텐더 및 계약"
+    sources: [nupco_tenders, etimad_api]
+
+  toggle_4:
+    purpose: supplier_master
+    description: "도매/유통 공급처 마스터 갱신"
+    sources: [tamer_group, sfda_companies]
+
+  toggle_5:
+    purpose: cross_validation
+    description: "SFDA ↔ 소매 교차검증 (가격 IQR)"
+    sources: [sfda_api, nahdi_web, al_dawaa_web]
+
+  toggle_6:
+    purpose: category_focus
+    description: "특정 ATC/제형 집중 수집 (파라미터 필요)"
+    sources: [sfda_api, nahdi_web]
+
+  toggle_7:
+    purpose: strict_mode
+    description: "robots 엄격·fallback만·confidence 보수적"
+    sources: [sfda_api, sfda_drugs_list_html]
+
+  toggle_8:
+    purpose: exploratory
+    description: "탐색/샘플링 모드"
+    sources: [sfda_api]
+    sample_size: 5

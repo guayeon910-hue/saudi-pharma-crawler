@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/user/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/31b496ff-ac04-4f45-9b81-d00830d475f0/c52d7b21-19c8-49ab-ad71-43a164196cc8/skills/docx/**)",
+      "Bash(python scripts/office/unpack.py \"C:\\\\Users\\\\user\\\\Downloads\\\\크롤링_로직_보고서_양식 \\(1\\).docx\" unpacked_template/)",
+      "Bash(pip install:*)",
+      "Bash(dir \"C:\\\\\\\\Users\\\\\\\\user\\\\\\\\Downloads\\\\\\\\\")",
+      "Bash(python scripts/office/unpack.py \"/c/Users/user/Downloads/크롤링_로직_보고서_양식 \\(1\\).docx\" unpacked_template/)",
+      "Bash(python -c ':*)",
+      "Bash(python)",
+      "Bash(python scripts/office/unpack.py \"C:\\\\Users\\\\user\\\\Desktop\\\\template.docx\" unpacked_template/)",
+      "Bash(pandoc \"C:\\\\Users\\\\user\\\\Desktop\\\\template.docx\" -t markdown)",
+      "mcp__Claude_Preview__preview_start",
+      "Read(//mnt/c/Users/user/Desktop/saudi-pharma-crawler/**)",
+      "Read(//c//**)",
+      "Bash(python tests/test_crawlers_import.py)",
+      "Bash(python tests/test_scispace_stage4.py)",
+      "Bash(python -c \"import docx; print\\(docx.__version__\\)\")",
+      "Bash(python -m pytest tests/test_perplexity_client.py -v)",
+      "Bash(python -m pytest tests/test_source_discoverer.py -v)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(nslookup oynefikqoibwtfpjlizv.supabase.co)",
+      "Bash(python _apply_unified_schema.py)"
+    ]
+  }
+}

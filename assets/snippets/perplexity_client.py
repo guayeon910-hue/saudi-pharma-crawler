@@ -1,0 +1,325 @@
+"""
+perplexity_client.py — Perplexity Sonar API 클라이언트
+
+역할:
+  - Perplexity Sonar API로 사우디 의약품 소스 웹 검색
+  - 1회 호출로 URL + 메타데이터 + citations 반환
+  - DuckDuckGo + Claude Haiku 다단계 파이프라인 대체
+  - 재시도 + 지수 백오프 (429/5xx)
+  - 토큰 사용량 추적 (llm_client.TokenUsage 재사용)
+
+통합 지점:
+  - source_discoverer.py: discover_sources_perplexity()에서 호출
+  - ai_search.py: 메인 오케스트레이터에서 생성 + 전달
+
+실행 환경: GitHub Actions 전용 (HTTP 요청 포함)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+from llm_client import TokenUsage
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 모델 상수
+# ---------------------------------------------------------------------------
+MODEL_SONAR = "sonar"
+MODEL_SONAR_PRO = "sonar-pro"
+
+DEFAULT_MODEL = MODEL_SONAR  # 비용 최적
+
+# ---------------------------------------------------------------------------
+# 재시도 설정
+# ---------------------------------------------------------------------------
+_RETRYABLE = {429, 500, 502, 503}
+MAX_RETRIES = 3
+BASE_DELAY = 2.0
+
+# ---------------------------------------------------------------------------
+# 프롬프트
+# ---------------------------------------------------------------------------
+
+SEARCH_SYSTEM_PROMPT = """You are a pharmaceutical market research assistant specializing in Saudi Arabia/KSA drug markets.
+Your task is to find online sources where pharmaceutical product information, pricing, or availability can be found in Saudi Arabia.
+Return ONLY a valid JSON array. No explanation, no markdown."""
+
+SEARCH_USER_TEMPLATE = """Find online sources in Saudi Arabia for this drug:
+- Drug: {trade_name}
+- Active Ingredients: {ingredients}
+- Dosage Form: {dosage_form}
+- Strength: {strength}
+
+Find sources that sell, list, or provide pricing for this drug or similar products with the same active ingredient in Saudi Arabia/KSA.
+
+Exclude these domains (we already have crawlers for them): {excluded}
+
+Return a JSON array of objects, each with:
+- "url": specific page URL
+- "title": site or page title
+- "description": one sentence about what the source offers
+- "category": one of "pharma_retailer", "pharma_regulator", "distributor", "hospital", "price_database", "other"
+- "has_price_data": boolean
+- "has_product_listing": boolean
+- "language": "en", "ar", or "mixed"
+- "relevance_score": float 0.0-1.0
+
+Return ONLY the JSON array."""
+
+
+# ---------------------------------------------------------------------------
+# Perplexity 클라이언트
+# ---------------------------------------------------------------------------
+
+class PerplexityClient:
+    """Perplexity Sonar API 클라이언트.
+
+    Parameters
+    ----------
+    api_key : str | None
+        PERPLEXITY_API_KEY. None이면 환경변수에서 읽음.
+    model : str
+        Perplexity 모델 (sonar / sonar-pro).
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
+        self._api_key = api_key or os.environ.get("PERPLEXITY_API_KEY", "")
+        self.model = model or os.environ.get("PERPLEXITY_MODEL", DEFAULT_MODEL)
+        self.usage = TokenUsage()
+
+        import httpx
+        self._http = httpx.Client(
+            base_url="https://api.perplexity.ai",
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=60.0,
+        )
+
+    @property
+    def available(self) -> bool:
+        """API 키가 설정되었는지 확인."""
+        return bool(self._api_key)
+
+    def search_pharma_sources(
+        self,
+        drug_info: dict,
+        excluded_domains: set[str],
+    ) -> list[dict]:
+        """사우디 의약품 소스 검색. 1회 호출.
+
+        Parameters
+        ----------
+        drug_info : dict
+            {trade_name, ingredients, dosage_form, strength}
+        excluded_domains : set[str]
+            제외할 도메인 집합
+
+        Returns
+        -------
+        list[dict]
+            [{url, domain, title, description, relevance_score,
+              category, has_price_data, has_product_listing, language}, ...]
+        """
+        # 제외 도메인을 간결하게 (www. 제거 후 중복 제거)
+        clean_excluded = sorted(set(
+            d.replace("www.", "") for d in excluded_domains
+        ))
+
+        prompt = SEARCH_USER_TEMPLATE.format(
+            trade_name=drug_info.get("trade_name", ""),
+            ingredients=drug_info.get("ingredients", ""),
+            dosage_form=drug_info.get("dosage_form", ""),
+            strength=drug_info.get("strength", ""),
+            excluded=", ".join(clean_excluded),
+        )
+
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": SEARCH_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 2048,
+        }
+
+        data = self._call_with_retry(body)
+
+        # 응답 파싱
+        content = data["choices"][0]["message"]["content"]
+        citations = data.get("citations", [])
+
+        # 토큰 추적
+        usage = data.get("usage", {})
+        self.usage.add(
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
+
+        # JSON 파싱 (마크다운 코드블록 처리)
+        sources_raw = self._parse_json(content)
+        if not isinstance(sources_raw, list):
+            logger.warning("Perplexity 응답이 리스트가 아님: %s", type(sources_raw))
+            sources_raw = []
+
+        # citation URL → domain 매핑 (검증된 URL)
+        citation_domains: set[str] = set()
+        for url in citations:
+            try:
+                citation_domains.add(urlparse(url).netloc.lower())
+            except Exception:
+                pass
+
+        # 소스 정규화 + 필터링
+        results: list[dict] = []
+        seen_domains: set[str] = set()
+
+        for src in sources_raw:
+            url = src.get("url", "")
+            if not url.startswith("http"):
+                continue
+
+            domain = urlparse(url).netloc.lower()
+            base_domain = ".".join(domain.split(".")[-2:])
+
+            # 제외 도메인 필터 (방어적)
+            if base_domain in excluded_domains or domain in excluded_domains:
+                continue
+
+            # 중복 도메인 제거
+            if base_domain in seen_domains:
+                continue
+            seen_domains.add(base_domain)
+
+            # citation에도 있으면 신뢰도 유지, 아니면 약간 감점
+            score = float(src.get("relevance_score", 0.7))
+            if domain in citation_domains or base_domain in {
+                ".".join(cd.split(".")[-2:]) for cd in citation_domains
+            }:
+                score = max(score, 0.70)  # citation 검증 최소 보장
+
+            results.append({
+                "url": url,
+                "domain": domain,
+                "title": src.get("title", ""),
+                "description": src.get("description", ""),
+                "relevance_score": score,
+                "category": src.get("category", "other"),
+                "has_price_data": bool(src.get("has_price_data", False)),
+                "has_product_listing": bool(src.get("has_product_listing", False)),
+                "language": src.get("language", ""),
+            })
+
+        # citations에만 있는 URL 추가 (AI 응답에 없지만 Perplexity가 참조한 소스)
+        for cit_url in citations:
+            try:
+                cit_domain = urlparse(cit_url).netloc.lower()
+                cit_base = ".".join(cit_domain.split(".")[-2:])
+
+                if cit_base in excluded_domains or cit_domain in excluded_domains:
+                    continue
+                if cit_base in seen_domains:
+                    continue
+
+                seen_domains.add(cit_base)
+                results.append({
+                    "url": cit_url,
+                    "domain": cit_domain,
+                    "title": "",
+                    "description": "Perplexity citation",
+                    "relevance_score": 0.65,
+                    "category": "other",
+                    "has_price_data": False,
+                    "has_product_listing": False,
+                    "language": "",
+                })
+            except Exception:
+                pass
+
+        logger.info(
+            "Perplexity 검색 완료: %d sources (%d citations)",
+            len(results), len(citations),
+        )
+
+        return results
+
+    # -------------------------------------------------------------------
+    # 내부
+    # -------------------------------------------------------------------
+
+    def _call_with_retry(self, body: dict) -> dict:
+        """지수 백오프 재시도."""
+        import httpx
+
+        last_err: Optional[Exception] = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = self._http.post("/chat/completions", json=body)
+
+                if resp.status_code == 200:
+                    return resp.json()
+
+                if resp.status_code in _RETRYABLE and attempt < MAX_RETRIES:
+                    delay = BASE_DELAY * (2 ** attempt)
+                    if resp.status_code == 429:
+                        retry_after = resp.headers.get("retry-after")
+                        if retry_after:
+                            delay = max(delay, float(retry_after))
+                    logger.warning(
+                        "Perplexity API %d, retry %d/%d (%.1fs)",
+                        resp.status_code, attempt + 1, MAX_RETRIES, delay,
+                    )
+                    self.usage.errors += 1
+                    time.sleep(delay)
+                    continue
+
+                resp.raise_for_status()
+
+            except httpx.TimeoutException as e:
+                last_err = e
+                self.usage.errors += 1
+                if attempt < MAX_RETRIES:
+                    delay = BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Perplexity API timeout, retry %d/%d",
+                        attempt + 1, MAX_RETRIES,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+
+        raise RuntimeError(f"Perplexity API failed after {MAX_RETRIES} retries: {last_err}")
+
+    @staticmethod
+    def _parse_json(text: str) -> Any:
+        """응답 텍스트에서 JSON 추출. 마크다운 코드블록도 처리."""
+        text = text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            inner = "\n".join(lines[1:-1]) if len(lines) > 2 else ""
+            return json.loads(inner)
+        return json.loads(text)
+
+    def close(self) -> None:
+        """HTTP 클라이언트 정리."""
+        self._http.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()

@@ -1,0 +1,126 @@
+# sources.yaml — [나라명] 크롤링 소스 설정
+# 이 파일을 복사한 뒤 자기 나라에 맞게 수정한다.
+#
+# 필드 해설:
+#   tier: 1(규제/공식) ~ 5(대형 상거래)
+#   access_method: api_first | html_static | html_dynamic | login_required
+#   auth: none | api_key | oauth2 | session_cookie
+#   confidence_default: 0.50~0.95 (공식일수록 높음)
+
+version: 1
+country: "XX"                # ← ISO 3166-1 alpha-2 코드 (SA, SG, VN, EG...)
+currency: "XXX"              # ← ISO 4217 통화 코드 (SAR, SGD, VND, EGP...)
+last_reviewed: "2026-04-10"
+
+sources:
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 1: 규제기관 (가장 중요. 이것부터 만들 것)
+  # ─────────────────────────────────────────────────────────
+  # 예시: 사우디=SFDA, 싱가포르=HSA, 베트남=DAV, 이집트=EDA
+  regulator_api:
+    tier: 1
+    access_method: api_first       # API가 있으면 api_first, 없으면 html_static
+    auth: none                     # oauth2 | api_key | none
+    url_seed: "https://규제기관_api_url"
+    # secrets_required:            # API 키가 필요하면 주석 해제
+    #   - REGULATOR_CLIENT_ID
+    #   - REGULATOR_CLIENT_SECRET
+    fields_covered:
+      - regulatory_id
+      - trade_name
+      - scientific_name
+      - strength
+      - dosage_form
+      - price_local
+      - manufacturer_or_marketing_company
+    cron_slot: "0 22 * * *"        # UTC 기준. 다른 나라와 겹치지 않게
+    confidence_default: 0.92
+    rate_limit_qps: 2.0
+    circuit_breaker_threshold: 5
+    workflow: api_light
+
+  regulator_html:
+    tier: 1
+    access_method: html_static
+    auth: none
+    url_seed: "https://규제기관_웹사이트/drugs-list"
+    fallback_for: regulator_api    # API 실패 시 HTML 폴백
+    fields_covered:
+      - regulatory_id
+      - trade_name
+      - scientific_name
+      - strength
+      - price_local
+    cron_slot: "30 22 * * *"
+    confidence_default: 0.85
+    rate_limit_qps: 0.5
+    circuit_breaker_threshold: 5
+    workflow: api_light
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 2: 공공조달 (있는 나라만)
+  # ─────────────────────────────────────────────────────────
+  # procurement_portal:
+  #   tier: 2
+  #   access_method: html_static
+  #   auth: none
+  #   url_seed: "https://조달포털"
+  #   fields_covered: [trade_name, price_local, agent_or_supplier]
+  #   market_segment_default: tender
+  #   cron_slot: "0 0 * * 1"       # 주 1회
+  #   confidence_default: 0.80
+  #   rate_limit_qps: 0.3
+  #   workflow: procurement
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 3: 소매 약국 (최소 1곳)
+  # ─────────────────────────────────────────────────────────
+  pharmacy_web_1:
+    tier: 3
+    access_method: html_static
+    auth: none
+    url_seed: "https://대형약국_사이트"
+    fields_covered:
+      - trade_name
+      - price_local
+      - manufacturer_or_marketing_company
+    market_segment_default: retail
+    cron_slot: "0 23 * * *"
+    confidence_default: 0.75
+    rate_limit_qps: 0.3
+    user_agent_rotation: true
+    circuit_breaker_threshold: 5
+    workflow: retail
+    matching_required: true         # 규제기관 데이터로 regulatory_id 보강
+
+  # pharmacy_web_2:
+  #   ...
+
+  # ─────────────────────────────────────────────────────────
+  # Tier 4~5: 도매/상거래 (우선순위 낮음)
+  # ─────────────────────────────────────────────────────────
+  # distributor:
+  #   tier: 4
+  #   ...
+  # marketplace:
+  #   tier: 5
+  #   enabled: false               # 법무 검토 후 활성화
+  #   ...
+
+
+# ─────────────────────────────────────────────────────────
+# Toggle 프리셋
+# ─────────────────────────────────────────────────────────
+toggles:
+  toggle_1:
+    purpose: regulatory_master
+    description: "규제기관 공식 데이터 동기화"
+    sources: [regulator_api, regulator_html]
+
+  toggle_2:
+    purpose: retail_prices
+    description: "소매 약국 가격 스냅샷"
+    sources: [pharmacy_web_1]
+
+  # toggle_3 ~ toggle_8: 필요 시 추가

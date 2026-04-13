@@ -1,0 +1,626 @@
+[
+  {
+    "input_name": "paracetamol",
+    "expected_inn": "paracetamol",
+    "source": "sfda_api",
+    "category": "exact",
+    "description": "INN 그대로",
+    "matched_names": [
+      "paracetamol"
+    ],
+    "matched_ids": [
+      [
+        "N02BE01"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "ibuprofen",
+    "expected_inn": "ibuprofen",
+    "source": "sfda_api",
+    "category": "exact",
+    "description": "INN 그대로",
+    "matched_names": [
+      "ibuprofen"
+    ],
+    "matched_ids": [
+      [
+        "M01AE01"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "metformin",
+    "expected_inn": "metformin",
+    "source": "sfda_api",
+    "category": "exact",
+    "description": "INN 그대로",
+    "matched_names": [
+      "metformin"
+    ],
+    "matched_ids": [
+      [
+        "A10BA02"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "omeprazole",
+    "expected_inn": "omeprazole",
+    "source": "sfda_api",
+    "category": "exact",
+    "description": "INN 그대로",
+    "matched_names": [
+      "omeprazole"
+    ],
+    "matched_ids": [
+      [
+        "A02BC01"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "Panadol",
+    "expected_inn": "paracetamol",
+    "source": "nahdi_web",
+    "category": "brand",
+    "description": "브랜드명 Panadol → paracetamol",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.9984970092773438,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "Lipitor",
+    "expected_inn": "atorvastatin",
+    "source": "al_dawaa_web",
+    "category": "brand",
+    "description": "브랜드명 Lipitor → atorvastatin",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "Nexium",
+    "expected_inn": "esomeprazole",
+    "source": "nahdi_web",
+    "category": "brand",
+    "description": "브랜드명 Nexium → esomeprazole",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "Plavix",
+    "expected_inn": "clopidogrel",
+    "source": "whites_web",
+    "category": "brand",
+    "description": "브랜드명 Plavix → clopidogrel",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "Glucophage",
+    "expected_inn": "metformin",
+    "source": "nahdi_web",
+    "category": "brand",
+    "description": "브랜드명 Glucophage → metformin",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "Ventolin",
+    "expected_inn": "salbutamol",
+    "source": "nahdi_web",
+    "category": "brand",
+    "description": "브랜드명 Ventolin → salbutamol",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "PARACETAMOL",
+    "expected_inn": "paracetamol",
+    "source": "sfda_api",
+    "category": "variant",
+    "description": "전부 대문자",
+    "matched_names": [
+      "paracetamol"
+    ],
+    "matched_ids": [
+      [
+        "N02BE01"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "Paracetamol",
+    "expected_inn": "paracetamol",
+    "source": "nahdi_web",
+    "category": "variant",
+    "description": "첫글자 대문자",
+    "matched_names": [
+      "paracetamol"
+    ],
+    "matched_ids": [
+      [
+        "N02BE01"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "amoxicillin trihydrate",
+    "expected_inn": "amoxicillin",
+    "source": "sfda_api",
+    "category": "variant",
+    "description": "수화물 포함",
+    "matched_names": [
+      "amoxicillintrihydrate"
+    ],
+    "matched_ids": [
+      [
+        "J01CA04_tri"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": "Partial name match within result"
+  },
+  {
+    "input_name": "Atorvastatin Calcium",
+    "expected_inn": "atorvastatin",
+    "source": "sfda_api",
+    "category": "variant",
+    "description": "염 포함 (Calcium)",
+    "matched_names": [
+      "atorvastatincalcium"
+    ],
+    "matched_ids": [
+      [
+        "C10AA05_ca"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 1.0001659393310547,
+    "notes": "Partial name match within result"
+  },
+  {
+    "input_name": "Losartan Potassium 50mg",
+    "expected_inn": "losartan",
+    "source": "nahdi_web",
+    "category": "variant",
+    "description": "염 + 함량 포함",
+    "matched_names": [
+      "losartan",
+      "losartanpotassium"
+    ],
+    "matched_ids": [
+      [
+        "C09CA01"
+      ],
+      [
+        "C09CA01_k"
+      ]
+    ],
+    "match_type": "substring",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "metformin hcl",
+    "expected_inn": "metformin",
+    "source": "al_dawaa_web",
+    "category": "variant",
+    "description": "HCL 약어",
+    "matched_names": [
+      "metformin"
+    ],
+    "matched_ids": [
+      [
+        "A10BA02"
+      ]
+    ],
+    "match_type": "substring",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "amlodipine besylate",
+    "expected_inn": "amlodipine",
+    "source": "sfda_api",
+    "category": "variant",
+    "description": "besylate 염",
+    "matched_names": [
+      "amlodipinebesylate"
+    ],
+    "matched_ids": [
+      [
+        "C08CA01_bes"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": "Partial name match within result"
+  },
+  {
+    "input_name": "Acetylsalicylic Acid",
+    "expected_inn": "acetylsalicylic acid",
+    "source": "sfda_api",
+    "category": "variant",
+    "description": "aspirin의 INN (대소문자 변형)",
+    "matched_names": [
+      "acetylsalicylicacid"
+    ],
+    "matched_ids": [
+      [
+        "N02BA01_inn"
+      ]
+    ],
+    "match_type": "exact",
+    "verdict": "PARTIAL",
+    "elapsed_ms": 0.0,
+    "notes": "Matched ['acetylsalicylicacid'] instead of acetylsalicylic acid"
+  },
+  {
+    "input_name": "paracetamole",
+    "expected_inn": "paracetamol",
+    "source": "nahdi_web",
+    "category": "typo",
+    "description": "끝에 e 추가 (흔한 오타)",
+    "matched_names": [
+      "paracetamol"
+    ],
+    "matched_ids": [
+      [
+        "N02BE01"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.5059242248535156,
+    "notes": ""
+  },
+  {
+    "input_name": "amoxicilin",
+    "expected_inn": "amoxicillin",
+    "source": "al_dawaa_web",
+    "category": "typo",
+    "description": "l 하나 빠짐",
+    "matched_names": [
+      "amoxicillin"
+    ],
+    "matched_ids": [
+      [
+        "J01CA04"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "ibuprofin",
+    "expected_inn": "ibuprofen",
+    "source": "whites_web",
+    "category": "typo",
+    "description": "e→i 오타",
+    "matched_names": [
+      "ibuprofen"
+    ],
+    "matched_ids": [
+      [
+        "M01AE01"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "atorvastain",
+    "expected_inn": "atorvastatin",
+    "source": "nahdi_web",
+    "category": "typo",
+    "description": "t 빠짐",
+    "matched_names": [
+      "atorvastatin"
+    ],
+    "matched_ids": [
+      [
+        "C10AA05"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "omeprazol",
+    "expected_inn": "omeprazole",
+    "source": "al_dawaa_web",
+    "category": "typo",
+    "description": "끝 e 빠짐",
+    "matched_names": [
+      "omeprazole"
+    ],
+    "matched_ids": [
+      [
+        "A02BC01"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "ciprofloxacine",
+    "expected_inn": "ciprofloxacin",
+    "source": "nahdi_web",
+    "category": "typo",
+    "description": "끝에 e 추가",
+    "matched_names": [
+      "ciprofloxacin"
+    ],
+    "matched_ids": [
+      [
+        "J01MA02"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "barasitamol",
+    "expected_inn": "paracetamol",
+    "source": "nahdi_web",
+    "category": "arabic",
+    "description": "아랍어 음역 باراسيتامول → barasitamol",
+    "matched_names": [
+      "paracetamol"
+    ],
+    "matched_ids": [
+      [
+        "N02BE01"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "amoksisilin",
+    "expected_inn": "amoxicillin",
+    "source": "al_dawaa_web",
+    "category": "arabic",
+    "description": "아랍어 음역 أموكسيسيلين",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 1.0111331939697266,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "ibubrofin",
+    "expected_inn": "ibuprofen",
+    "source": "whites_web",
+    "category": "arabic",
+    "description": "아랍어 음역 إيبوبروفين",
+    "matched_names": [
+      "ibuprofen"
+    ],
+    "matched_ids": [
+      [
+        "M01AE01"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "metformine",
+    "expected_inn": "metformin",
+    "source": "nahdi_web",
+    "category": "arabic",
+    "description": "프랑스어/아랍어 변형",
+    "matched_names": [
+      "metformin"
+    ],
+    "matched_ids": [
+      [
+        "A10BA02"
+      ]
+    ],
+    "match_type": "partial",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "asitaminofen",
+    "expected_inn": "acetaminophen",
+    "source": "nahdi_web",
+    "category": "arabic",
+    "description": "아랍어 음역 أسيتامينوفين → acetaminophen",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "FAIL",
+    "elapsed_ms": 0.0,
+    "notes": "No match found"
+  },
+  {
+    "input_name": "amoxicillin clavulanate",
+    "expected_inn": "amoxicillin",
+    "source": "sfda_api",
+    "category": "combo",
+    "description": "복합제 (amox + clavulanic acid)",
+    "matched_names": [
+      "amoxicillin"
+    ],
+    "matched_ids": [
+      [
+        "J01CA04"
+      ]
+    ],
+    "match_type": "substring",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "losartan hydrochlorothiazide",
+    "expected_inn": "losartan",
+    "source": "sfda_api",
+    "category": "combo",
+    "description": "복합제 (losartan + HCTZ)",
+    "matched_names": [
+      "hydrochlorothiazide",
+      "losartan"
+    ],
+    "matched_ids": [
+      [
+        "C03AA03"
+      ],
+      [
+        "C09CA01"
+      ]
+    ],
+    "match_type": "substring",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "amlodipine valsartan",
+    "expected_inn": "amlodipine",
+    "source": "sfda_api",
+    "category": "combo",
+    "description": "복합제",
+    "matched_names": [
+      "amlodipine",
+      "valsartan"
+    ],
+    "matched_ids": [
+      [
+        "C08CA01"
+      ],
+      [
+        "C09CA03"
+      ]
+    ],
+    "match_type": "substring",
+    "verdict": "SUCCESS",
+    "elapsed_ms": 0.0,
+    "notes": ""
+  },
+  {
+    "input_name": "Vitamin D3",
+    "expected_inn": "NONE",
+    "source": "nahdi_web",
+    "category": "unmatched",
+    "description": "비타민 — INN 아님",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "TRUE_NEGATIVE",
+    "elapsed_ms": 0.0,
+    "notes": "Error: TypeError: cannot unpack non-iterable NoneType object"
+  },
+  {
+    "input_name": "Omega 3 Fish Oil",
+    "expected_inn": "NONE",
+    "source": "whites_web",
+    "category": "unmatched",
+    "description": "건강기능식품 — INN 아님",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "TRUE_NEGATIVE",
+    "elapsed_ms": 0.0,
+    "notes": "Error: TypeError: cannot unpack non-iterable NoneType object"
+  },
+  {
+    "input_name": "hand sanitizer",
+    "expected_inn": "NONE",
+    "source": "nahdi_web",
+    "category": "unmatched",
+    "description": "의약품 아님",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "TRUE_NEGATIVE",
+    "elapsed_ms": 0.0,
+    "notes": "Error: TypeError: cannot unpack non-iterable NoneType object"
+  },
+  {
+    "input_name": "facial cream SPF50",
+    "expected_inn": "NONE",
+    "source": "whites_web",
+    "category": "unmatched",
+    "description": "화장품 — INN 아님",
+    "matched_names": null,
+    "matched_ids": null,
+    "match_type": "error",
+    "verdict": "TRUE_NEGATIVE",
+    "elapsed_ms": 0.0,
+    "notes": "Error: TypeError: cannot unpack non-iterable NoneType object"
+  }
+]
