@@ -186,7 +186,7 @@ header .subtitle{font-size:.8rem;opacity:.75;margin-top:2px}
     <div class="analysis-section">
       <select class="product-select" id="productSelect"><option value="">품목을 선택하세요</option></select>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="btnFull" disabled onclick="runFullPipeline()" style="background:linear-gradient(135deg,#059669,#0d9488);padding:10px 28px">전체 실행 (크롤링+분석+보고서)</button>
+        <button class="btn btn-primary" id="btnFull" disabled onclick="runFullPipeline()" style="background:linear-gradient(135deg,#059669,#0d9488);padding:10px 28px">전체 실행 (크롤링+분석)</button>
         <button class="btn btn-primary" id="btnRun" disabled onclick="runPipeline()">분석만</button>
         <button class="btn btn-purple" id="btnPplx" onclick="runPerplexity()" title="Perplexity 시장 분석">Perplexity</button>
       </div>
@@ -197,8 +197,6 @@ header .subtitle{font-size:.8rem;opacity:.75;margin-top:2px}
       <div class="pstep" id="ps-analyze"><div class="circle">2</div><div class="plabel">Claude 분석</div></div>
       <div class="pconn" id="pc-2"></div>
       <div class="pstep" id="ps-refs"><div class="circle">3</div><div class="plabel">논문 검색</div></div>
-      <div class="pconn" id="pc-3"></div>
-      <div class="pstep" id="ps-report"><div class="circle">4</div><div class="plabel">보고서</div></div>
     </div>
   </div>
 
@@ -220,7 +218,13 @@ header .subtitle{font-size:.8rem;opacity:.75;margin-top:2px}
   </div>
 
   <div class="card papers-card" id="papersCard"><h2>참고문헌 / 논문</h2><div id="papersContent"></div></div>
-  <div class="card report-card" id="reportCard"><h2>보고서 다운로드</h2><div id="reportContent"></div></div>
+  <div class="card report-card" id="reportCard">
+    <h2>보고서</h2>
+    <div id="reportContent">
+      <button class="btn btn-primary" id="btnReport" onclick="generateReport()" style="padding:12px 28px">보고서 생성</button>
+      <div id="reportResult" style="margin-top:12px"></div>
+    </div>
+  </div>
 
   <!-- Site Status -->
   <div class="card">
@@ -442,7 +446,7 @@ function updateSiteCard(key, status, msg) {
 // ═══════════════════════════════════════════
 // Progress
 // ═══════════════════════════════════════════
-const STEPS = ['crawl','analyze','refs','report'];
+const STEPS = ['crawl','analyze','refs'];
 function showProgress() {
   document.getElementById('progressBar').style.display = 'flex';
   resetSteps();
@@ -453,19 +457,19 @@ function showProgress() {
 }
 function resetSteps() {
   STEPS.forEach(s => document.getElementById('ps-'+s).className = 'pstep');
-  [1,2,3].forEach(i => document.getElementById('pc-'+i).className = 'pconn');
+  [1,2].forEach(i => document.getElementById('pc-'+i).className = 'pconn');
 }
 function updateStep(step) {
   resetSteps();
   const idx = STEPS.indexOf(step);
   if (idx < 0 && step === 'done') {
     STEPS.forEach(s => document.getElementById('ps-'+s).className = 'pstep done');
-    [1,2,3].forEach(i => document.getElementById('pc-'+i).className = 'pconn done');
+    [1,2].forEach(i => document.getElementById('pc-'+i).className = 'pconn done');
     return;
   }
   for (let i = 0; i < idx; i++) {
     document.getElementById('ps-'+STEPS[i]).className = 'pstep done';
-    if (i < 3) document.getElementById('pc-'+(i+1)).className = 'pconn done';
+    if (i < 2) document.getElementById('pc-'+(i+1)).className = 'pconn done';
   }
   if (idx >= 0) document.getElementById('ps-'+STEPS[idx]).className = 'pstep active';
 }
@@ -519,12 +523,12 @@ async function runFullPipeline() {
           loadAllAISources();
           btn.disabled = false;
           btnRun.disabled = false;
-          btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+          btn.innerHTML = '전체 실행 (크롤링+분석)';
         } else if (st.step === 'error') {
           clearInterval(fpPoll);
           btn.disabled = false;
           btnRun.disabled = false;
-          btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+          btn.innerHTML = '전체 실행 (크롤링+분석)';
         }
       } catch(e) {}
     }, 5000);
@@ -532,7 +536,7 @@ async function runFullPipeline() {
   } catch(e) {
     btn.disabled = false;
     btnRun.disabled = false;
-    btn.innerHTML = '전체 실행 (크롤링+분석+보고서)';
+    btn.innerHTML = '전체 실행 (크롤링+분석)';
     appendLog({phase:'error', message:'전체 파이프라인 시작 실패: '+e.message});
   }
 }
@@ -627,11 +631,11 @@ function renderResult(data) {
     ? refs.map(r => '<div style="padding:8px 0;border-bottom:1px solid var(--border)"><a href="'+r.url+'" target="_blank" style="color:var(--primary);font-weight:500;text-decoration:none">'+r.title+'</a><div style="font-size:.75rem;color:var(--muted)">'+r.source+' — '+r.reason+'</div></div>').join('')
     : '<div style="color:var(--muted);font-size:.85rem">PERPLEXITY_API_KEY가 설정되지 않았거나 검색 결과가 없습니다.</div>';
 
-  // Report
-  if (pdf) {
-    document.getElementById('reportCard').style.display = 'block';
-    document.getElementById('reportContent').innerHTML = '<a href="'+API+'/api/report/download?filename='+encodeURIComponent(pdf)+'" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.9rem">'+pdf+' 다운로드</a>';
-  }
+  // Report card: always show with generate button
+  document.getElementById('reportCard').style.display = 'block';
+  document.getElementById('reportResult').innerHTML = pdf
+    ? '<a href="'+API+'/api/report/download?filename='+encodeURIComponent(pdf)+'" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.9rem">'+pdf+' 다운로드</a>'
+    : '';
   rc.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
@@ -735,6 +739,47 @@ function renderPerplexity(data) {
   }
   if (data.timestamp) h += '<div style="font-size:.7rem;color:var(--muted);margin-top:8px">분석 시각: '+data.timestamp.substring(0,19)+'</div>';
   document.getElementById('pplxContent').innerHTML = h || '<div style="color:var(--muted)">결과 없음</div>';
+}
+
+// ═══════════════════════════════════════════
+// Report Generation (separate button)
+// ═══════════════════════════════════════════
+async function generateReport() {
+  if (!selectedKey) return;
+  const btn = document.getElementById('btnReport');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 보고서 생성 중...';
+  appendLog({phase:'report', message:'보고서 생성 요청...'});
+
+  try {
+    const r = await fetch(API+'/api/pipeline/'+selectedKey, {method:'POST'});
+    // Use existing pipeline but only for report
+    // Actually trigger report endpoint directly
+    const rr = await fetch(API+'/api/report?run_analysis=false', {method:'POST'});
+    if (!rr.ok) throw new Error((await rr.json()).detail);
+
+    // Poll report status
+    const rpPoll = setInterval(async () => {
+      try {
+        const sr = await fetch(API+'/api/report/status');
+        if (!sr.ok) return;
+        const st = await sr.json();
+        if (!st.running && st.latest_pdf) {
+          clearInterval(rpPoll);
+          document.getElementById('reportResult').innerHTML =
+            '<a href="'+API+'/api/report/download?filename='+encodeURIComponent(st.latest_pdf)+'" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.9rem">'+st.latest_pdf+' 다운로드</a>';
+          btn.disabled = false;
+          btn.textContent = '보고서 생성';
+          appendLog({phase:'report', message:'보고서 완료: '+st.latest_pdf});
+        }
+      } catch(e) {}
+    }, 3000);
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '보고서 생성';
+    appendLog({phase:'error', message:'보고서 생성 실패: '+e.message});
+  }
 }
 
 // ═══════════════════════════════════════════

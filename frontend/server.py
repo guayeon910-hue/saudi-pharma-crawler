@@ -1095,28 +1095,21 @@ async def start_full_pipeline(product_key: str):
             await _emit({"phase": "full-pipeline", "step": "refs",
                           "message": f"참고문헌 {len(refs)}건 수집"})
 
-            # Step 5: 보고서
-            _full_pipeline_state["step"] = "report"
-            pdf = _generate_report_for_pipeline(drug, analysis, refs, None)
-            if pdf:
-                await _emit({"phase": "full-pipeline", "step": "report",
-                              "message": f"보고서 생성 완료: {pdf}"})
-
-            # 결과 저장
+            # 결과 저장 (보고서는 별도 버튼으로 분리)
             _pipeline_tasks[product_key] = {
                 "status": "done",
                 "step": "done",
                 "step_label": "완료",
                 "result": analysis,
                 "refs": refs,
-                "pdf": pdf,
+                "pdf": None,
                 "started_at": time.time(),
             }
 
             _full_pipeline_state["step"] = "done"
             _full_pipeline_state["message"] = "전체 파이프라인 완료"
             await _emit({"phase": "full-pipeline", "step": "done",
-                          "message": "전체 파이프라인 완료 ✓ (크롤링 + 분석 + 보고서)"})
+                          "message": "크롤링 + 분석 완료 ✓ (보고서는 별도 생성)"})
 
         except Exception as e:
             await _emit({"phase": "log", "message": f"전체 파이프라인 오류: {e}"})
