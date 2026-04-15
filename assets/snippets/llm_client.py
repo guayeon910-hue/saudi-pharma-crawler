@@ -32,6 +32,10 @@ MODEL_SONNET = "claude-sonnet-4-6"
 
 DEFAULT_MODEL = MODEL_HAIKU  # 비용 최적: 대부분 Haiku로 충분
 
+# 정책: Sonnet 호출 원천 차단 (사용자 제약 - 토큰 소비 최소화)
+# ENFORCE_HAIKU_ONLY=0 으로 명시 해제하지 않는 한 모든 Sonnet 호출을 Haiku로 강제 전환.
+_ENFORCE_HAIKU = os.getenv("ENFORCE_HAIKU_ONLY", "1") == "1"
+
 # ---------------------------------------------------------------------------
 # 토큰 사용량 추적
 # ---------------------------------------------------------------------------
@@ -169,6 +173,11 @@ class ClaudeClient:
         """
         model = model or self._default_model
         max_tokens = max_tokens or self._default_max_tokens
+
+        # Haiku 강제 가드: Sonnet 혹은 그 외 모델 지정 시 Haiku로 치환
+        if _ENFORCE_HAIKU and model != MODEL_HAIKU:
+            logger.warning("Sonnet 호출 감지(%s) -> Haiku 강제 전환", model)
+            model = MODEL_HAIKU
 
         body: dict[str, Any] = {
             "model": model,

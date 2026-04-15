@@ -9,8 +9,6 @@ source_discoverer.py — AI 자율 소스 발견 (Phase A)
   5. 정제 스니펫 → LLM 사이트 판별 (의약품 관련? 사우디 시장? 신뢰도?)
   6. 유효 소스 목록 반환
 
-실행 환경: GitHub Actions 전용 (HTTP 요청 포함)
-
 통합 지점:
   - ai_search.py: 메인 오케스트레이터에서 호출
   - llm_client.py: Claude API 래퍼
@@ -22,13 +20,43 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 도메인 평가 캐시 (핀포인트 크롤링: 재방문 시 LLM 호출 생략)
+# ---------------------------------------------------------------------------
+
+_DOMAIN_CACHE_PATH = Path(__file__).resolve().parents[2] / "reports" / "cache" / "domain_eval.json"
+_DOMAIN_CACHE_TTL_SEC = int(os.getenv("PINPOINT_CACHE_TTL_DAYS", "7")) * 24 * 3600
+
+
+def _load_domain_cache() -> dict:
+    """도메인 평가 캐시 로드. 실패 시 빈 dict."""
+    try:
+        if _DOMAIN_CACHE_PATH.exists():
+            with open(_DOMAIN_CACHE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError) as e:
+        logger.debug("domain cache load 실패 (무시): %s", e)
+    return {}
+
+
+def _save_domain_cache(cache: dict) -> None:
+    """도메인 평가 캐시 저장. 실패 시 무시."""
+    try:
+        _DOMAIN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_DOMAIN_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.debug("domain cache save 실패 (무시): %s", e)
 
 # ---------------------------------------------------------------------------
 # 발견된 소스 데이터 모델
@@ -134,7 +162,7 @@ def generate_search_queries(
     )
 
     try:
-        queries = llm_client.ask_json(prompt, system=QUERY_SYSTEM_PROMPT, max_tokens=512)
+        queries = llm_client.ask_json(prompt, system=QUERY_SYSTEM_PROMPT, max_tokens=256)
         if isinstance(queries, list):
             return [str(q) for q in queries[:5]]
     except Exception as e:
@@ -353,11 +381,29 @@ def evaluate_source(
     -------
     DiscoveredSource
     """
+    # 핀포인트: 도메인 캐시 조회 (TTL 내면 LLM 호출 생략)
+    cache = _load_domain_cache()
+    entry = cache.get(domain)
+    if entry and (time.time() - entry.get("ts", 0)) < _DOMAIN_CACHE_TTL_SEC:
+        logger.info("evaluate_source 캐시 히트: %s", domain)
+        data = entry.get("data", {})
+        cached = DiscoveredSource(url=url, domain=domain, title=title)
+        cached.relevance_score = float(data.get("relevance_score", 0.0))
+        cached.category = data.get("category", "other")
+        cached.has_price_data = bool(data.get("has_price_data", False))
+        cached.has_product_listing = bool(data.get("has_product_listing", False))
+        cached.language = data.get("language", "")
+        cached.description = data.get("description", "")
+        if cached.relevance_score < 0.6:
+            cached.rejection_reason = f"Low relevance (cached): {cached.relevance_score:.2f}"
+        return cached
+
+    # 핀포인트: 3000 → 1500자로 축소
     prompt = EVALUATE_USER_TEMPLATE.format(
         url=url,
         domain=domain,
         title=title,
-        snippet=snippet[:3000],  # 토큰 절약
+        snippet=snippet[:1500],
     )
 
     source = DiscoveredSource(url=url, domain=domain, title=title)
@@ -374,6 +420,20 @@ def evaluate_source(
 
         if source.relevance_score < 0.6:
             source.rejection_reason = f"Low relevance: {source.relevance_score:.2f} - {source.description}"
+
+        # 캐시 저장 (성공 시에만)
+        cache[domain] = {
+            "ts": time.time(),
+            "data": {
+                "relevance_score": source.relevance_score,
+                "category": source.category,
+                "has_price_data": source.has_price_data,
+                "has_product_listing": source.has_product_listing,
+                "language": source.language,
+                "description": source.description,
+            },
+        }
+        _save_domain_cache(cache)
 
     except Exception as e:
         logger.error("사이트 평가 실패 %s: %s", url, e)
@@ -567,7 +627,7 @@ def discover_sources(
         if html:
             pages_fetched += 1
             # 전처리 (논문1 파이프라인)
-            prep = preprocess_html(html, max_chars=3000)
+            prep = preprocess_html(html, max_chars=1500)
             snippet = prep.prompt_text if prep.prompt_text else sr.get("snippet", "")
         else:
             snippet = sr.get("snippet", "")

@@ -420,3 +420,95 @@ def preprocess_for_scraper(
         clean_html = clean_html[:max_chars] + "\n<!-- truncated -->"
 
     return clean_html
+
+
+def extract_pinpoint_snippet(
+    html: str,
+    keywords: list[str],
+    *,
+    max_chars: int = 800,
+    window: int = 400,
+    max_depth: int = 6,
+) -> str:
+    """키워드 주변 밀도 높은 블록만 뽑아 짧은 스니펫 반환 (핀포인트 추출).
+
+    auto_scraper / LLM 호출 전 전처리로 사용. 전체 페이지를 넘기는 대신
+    키워드(약품명·성분명 등)가 포함된 블록과 그 부모 컨텍스트만 선별해
+    프롬프트 토큰을 대폭 축소한다.
+
+    Parameters
+    ----------
+    html : str
+        원본 HTML.
+    keywords : list[str]
+        검색 키워드 목록 (대소문자 무시, 부분 매칭).
+    max_chars : int
+        총 반환 문자 수 상한 (기본 800자).
+    window : int
+        매칭 블록 주변 outer HTML 윈도우 크기.
+    max_depth : int
+        DOM 단순화 최대 깊이.
+
+    Returns
+    -------
+    str
+        매칭 블록들의 outer HTML을 연결한 문자열. 매칭이 없으면
+        밀도 상위 블록으로 폴백.
+    """
+    if not html:
+        return ""
+
+    # 1) 기존 유틸 재사용: 파싱 + 노이즈 제거 + DOM 단순화
+    soup = _parse_html(html)
+    soup = _remove_noise(soup)
+    soup = _simplify_dom(soup, max_depth=max_depth)
+
+    # 2) 키워드 매칭 블록 수집
+    kws = [k.lower().strip() for k in (keywords or []) if k and k.strip()]
+    matched_htmls: list[tuple[int, str]] = []  # (score, html)
+
+    if kws:
+        for tag in soup.find_all(BLOCK_TAGS):
+            try:
+                text = tag.get_text(" ", strip=True).lower()
+            except Exception:
+                continue
+            if not text:
+                continue
+            score = sum(text.count(k) for k in kws)
+            if score <= 0:
+                continue
+            outer = str(tag)[:window]
+            matched_htmls.append((score, outer))
+
+        matched_htmls.sort(key=lambda x: x[0], reverse=True)
+
+    # 3) 매칭 블록이 없으면 밀도 기반 상위 블록으로 폴백
+    if not matched_htmls:
+        blocks = _extract_blocks(soup)
+        selected = _select_snippets(blocks, top_n=5, min_density=0.3)
+        pieces: list[str] = []
+        total = 0
+        for b in selected:
+            token = STRUCTURE_TOKENS.get(b.tag, "TEXT")
+            chunk = f"[{token}] {b.text} [/{token}]"[:window]
+            if total + len(chunk) > max_chars:
+                break
+            pieces.append(chunk)
+            total += len(chunk) + 1
+        return "\n".join(pieces)
+
+    # 4) 매칭 블록들을 max_chars 내에서 join
+    result: list[str] = []
+    total = 0
+    seen: set[str] = set()
+    for _, chunk in matched_htmls:
+        if chunk in seen:
+            continue
+        seen.add(chunk)
+        if total + len(chunk) > max_chars:
+            break
+        result.append(chunk)
+        total += len(chunk) + 1
+
+    return "\n".join(result)

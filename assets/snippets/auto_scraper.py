@@ -27,14 +27,45 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 from lxml import html as lxml_html
 from lxml import etree
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# XPath 패턴 캐시 (핀포인트 크롤링: 도메인 재방문 시 LLM 호출 생략)
+# ---------------------------------------------------------------------------
+
+_XPATH_CACHE_PATH = Path(__file__).resolve().parents[2] / "reports" / "cache" / "xpath_patterns.json"
+_XPATH_CACHE_MAX_FAILS = 3  # 연속 실패 시 재생성
+
+
+def _load_xpath_cache() -> dict:
+    """XPath 패턴 캐시 로드. 실패 시 빈 dict."""
+    try:
+        if _XPATH_CACHE_PATH.exists():
+            with open(_XPATH_CACHE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError) as e:
+        logger.debug("xpath cache load 실패 (무시): %s", e)
+    return {}
+
+
+def _save_xpath_cache(cache: dict) -> None:
+    """XPath 패턴 캐시 저장. 실패 시 무시."""
+    try:
+        _XPATH_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_XPATH_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.debug("xpath cache save 실패 (무시): %s", e)
 
 # ---------------------------------------------------------------------------
 # 데이터 모델
@@ -171,7 +202,7 @@ Here is a WIDER context (parent node HTML):
 Generate a NEW XPath to extract: {field_description}
 Return JSON: {{"xpath": "...", "expected_value": "..."}}"""
 
-MAX_STEPBACK = 3  # 최대 step-back 횟수
+MAX_STEPBACK = 2  # 최대 step-back 횟수 (핀포인트: 3→2로 축소, 호출 1회/필드 절감)
 
 
 def _execute_xpath(tree: etree._Element, xpath: str) -> list[str]:
@@ -247,10 +278,10 @@ def generate_xpath_for_field(
     action = XPathAction(field_name=field_def["name"])
     validation_fn = field_def["validation"]
 
-    # Top-down: 첫 시도
+    # Top-down: 첫 시도 (핀포인트: 3000→1500자로 축소)
     prompt = XPATH_USER_TEMPLATE.format(
         field_description=field_def["description"],
-        html_snippet=html_snippet[:3000],
+        html_snippet=html_snippet[:1500],
     )
 
     try:
@@ -266,24 +297,28 @@ def generate_xpath_for_field(
             action.verified = True
             return action
 
-        # Step-back 반복
+        # Step-back 반복 (핀포인트: 적응형 크기 + 이전 시도 추적)
         prev_xpath = xpath
+        prev_xpaths: list[str] = [xpath] if xpath else []
         error = f"No valid value found (got: {values[:3] if values else 'empty'})"
 
         for step in range(MAX_STEPBACK):
-            parent_html = _get_parent_html(tree, prev_xpath, level=step + 1)
+            # 적응형 parent_html 크기: 2000 → 1000 → 500 (단계 깊어질수록 축소)
+            size = max(2000 >> step, 400)
+            parent_html = _get_parent_html(tree, prev_xpath, level=step + 1)[:size]
             if not parent_html:
                 break
 
+            tried_list = "\n".join(f"  - {x}" for x in prev_xpaths[-3:])
             stepback_prompt = STEPBACK_USER_TEMPLATE.format(
                 prev_xpath=prev_xpath,
-                error=error,
-                parent_html=parent_html[:2000],
+                error=f"{error}\nPreviously tried:\n{tried_list}",
+                parent_html=parent_html,
                 field_description=field_def["description"],
             )
 
             result = llm_client.ask_json(stepback_prompt, system=XPATH_SYSTEM_PROMPT, max_tokens=256)
-            new_xpath = result.get("xpath", "")
+            new_xpath = result.get("xpath", "") if result is not None else ""
             action.xpath = new_xpath
             action.attempts += 1
 
@@ -294,6 +329,8 @@ def generate_xpath_for_field(
                 return action
 
             prev_xpath = new_xpath
+            if new_xpath:
+                prev_xpaths.append(new_xpath)
             error = f"Step-back {step+1}: still no valid value (got: {values[:3] if values else 'empty'})"
 
     except Exception as e:
@@ -346,10 +383,64 @@ def generate_action_sequence(
 
     seq = ActionSequence(url=url, domain=domain, page_title=title)
 
-    # 각 필드에 대해 XPath 생성
+    # 핀포인트: 도메인별 XPath 캐시 조회
+    xpath_cache = _load_xpath_cache()
+    domain_cache = xpath_cache.get(domain, {})
+    cache_hits = 0
+    cache_dirty = False
+
+    # 각 필드에 대해 XPath 생성 (캐시 우선, 실패 시 LLM 폴백)
     for field_def in fields:
-        action = generate_xpath_for_field(llm_client, clean_html, tree, field_def)
+        fname = field_def["name"]
+        cached_entry = domain_cache.get(fname)
+        action: Optional[XPathAction] = None
+
+        # 1) 캐시된 XPath를 먼저 실제 HTML에 실행하여 검증
+        if (
+            cached_entry
+            and cached_entry.get("xpath")
+            and cached_entry.get("fail_count", 0) < _XPATH_CACHE_MAX_FAILS
+        ):
+            cached_xpath = cached_entry["xpath"]
+            values = _execute_xpath(tree, cached_xpath)
+            if values and field_def["validation"](values[0]):
+                action = XPathAction(
+                    field_name=fname,
+                    xpath=cached_xpath,
+                    sample_value=values[0],
+                    verified=True,
+                    attempts=0,  # LLM 호출 없음
+                )
+                cached_entry["success_count"] = int(cached_entry.get("success_count", 0)) + 1
+                cached_entry["fail_count"] = 0
+                cached_entry["verified_at"] = time.time()
+                cache_hits += 1
+                cache_dirty = True
+            else:
+                # 캐시 hit이지만 검증 실패 → fail_count 증가 (3회되면 다음번에 재생성)
+                cached_entry["fail_count"] = int(cached_entry.get("fail_count", 0)) + 1
+                cache_dirty = True
+
+        # 2) 캐시 미스 또는 캐시 실패 → LLM으로 생성
+        if action is None:
+            action = generate_xpath_for_field(llm_client, clean_html, tree, field_def)
+            if action.verified and action.xpath:
+                domain_cache[fname] = {
+                    "xpath": action.xpath,
+                    "verified_at": time.time(),
+                    "success_count": 1,
+                    "fail_count": 0,
+                }
+                cache_dirty = True
+
         seq.actions.append(action)
+
+    # 캐시 flush
+    if cache_dirty:
+        xpath_cache[domain] = domain_cache
+        _save_xpath_cache(xpath_cache)
+    if cache_hits:
+        logger.info("[%s] XPath 캐시 히트: %d/%d 필드", domain, cache_hits, len(fields))
 
     # 성공률 계산
     verified = [a for a in seq.actions if a.verified]
