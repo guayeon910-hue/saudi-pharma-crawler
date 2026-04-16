@@ -38,6 +38,7 @@ anthropic>=0.39.0
 # ─── 웹 서버 (대시보드) ────────────────────────────────
 fastapi>=0.115.0
 uvicorn>=0.30.0
+python-multipart>=0.0.9   # Form/File (POST /api/p2/price-analyze 등)
 python-docx>=1.1.0
 
 # ─── 설정 / 로깅 ──────────────────────────────────────
