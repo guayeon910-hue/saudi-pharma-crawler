@@ -1,0 +1,1110 @@
+/*
+ * UPharma Export AI — 사우디아라비아 대시보드 스타일
+ * ─────────────────────────────────────────────
+ * 디자인 시스템: 네이비/오렌지 테마
+ * 테두리 정책 : border 선 없음. 그림자(box-shadow)로만 구분.
+ *
+ * 목차:
+ *   1.  CSS 변수 & 리셋
+ *   2.  앱 래퍼 & 배경
+ *   3.  상단 바 (Topbar)
+ *   4.  내비게이션 탭
+ *   5.  페이지 전환
+ *   6.  카드 공통
+ *   7.  그리드 레이아웃
+ *   8.  뱃지 (bdg)
+ *   9.  내부 행 (irow)
+ *  10.  API 키 배지
+ *  11.  환율 카드 요소
+ *  12.  To-Do 리스트
+ *  13.  1공정 — 셀렉터 카드
+ *  14.  1공정 — 진행 단계
+ *  15.  1공정 — 분석 결과 카드
+ *  16.  1공정 — 신호등
+ *  17.  1공정 — 판정 근거 / 전략 그리드
+ *  18.  1공정 — 논문 / 보고서 카드
+ *  19.  1공정 — 신약 분석 폼
+ *  20.  보고서 탭
+ *  21.  빈 페이지 (2·3공정)
+ *  22.  보고서 로딩 스피너
+ *  23.  반응형
+ *  24.  스크롤바
+ */
+
+/* ── 1. CSS 변수 & 리셋 ──────────────────────────────────────────────────── */
+:root {
+  /* 메인 색상 팔레트 */
+  --navy:    #173f78;
+  --navy2:   #224f91;
+  --orange:  #f0a13a;
+  --orange2: #e18e20;
+  --green:   #2d9870;
+  --blue:    #3a82f0;
+  --red:     #c8564d;
+  --warn:    #c98b28;
+
+  /* 텍스트 & 배경 — 레퍼런스 이미지의 크림/네이비 팔레트 */
+  --text:    #1e2d45;
+  --muted:   #6b7d96;
+  --card:    #ffffff;
+  --inner:   #f4f6fa;
+  --shell:   #f8f5f0;   /* 따뜻한 크림색 배경 (레퍼런스 이미지 기준) */
+
+  /* 그림자 레벨 — 부드러운 네이비 톤 */
+  --sh:      0 6px 20px rgba(23, 63, 120, .08);
+  --sh2:     0 2px 8px  rgba(23, 63, 120, .06);
+  --sh3:     0 1px 4px  rgba(23, 63, 120, .04);
+
+  /* 1공정 의미론적 색상 */
+  --ok:      #2d9870;
+  --ok-bg:   rgba(45, 152, 112, .10);
+  --err:     #c8564d;
+  --err-bg:  rgba(200, 86, 77, .08);
+  --warn-bg: rgba(201, 139, 40, .10);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Pretendard", "Noto Sans KR", "SF Pro Text", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--shell);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+input, select {
+  border: none;
+  font-family: inherit;
+}
+
+a { color: inherit; }
+
+/* ── 2. 앱 래퍼 ──────────────────────────────────────────────────────────── */
+.app {
+  width: 100%;
+  min-height: 100vh;
+  background: var(--shell);
+}
+
+/* ── 3. 상단 바 ──────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 28px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(23, 63, 120, .08);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* 브랜드 로고 + 이름 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0; /* flex shrink 허용 */
+  flex: 1;
+}
+
+.brand-logo {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.brand-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brand-text h1 {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  line-height: 1.2;
+  color: var(--navy);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 우측 그룹 */
+.topbar-r {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 국가 국기 pill (사우디아라비아 🇸🇦) */
+.pill {
+  height: 38px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: var(--sh2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.flag-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ── 4. 내비게이션 탭 ────────────────────────────────────────────────────── */
+.main {
+  padding: 20px 32px 40px;
+}
+
+.nav {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 24px;
+  position: relative;
+  /* 하단 경계선 — border 없이 box-shadow로 */
+  box-shadow: inset 0 -2px 0 rgba(23, 63, 120, .09);
+  overflow-x: auto;           /* 모바일에서 가로 스크롤 */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;      /* 스크롤바 숨김 */
+}
+
+.nav::-webkit-scrollbar { display: none; }
+
+.tab {
+  height: 48px;
+  padding: 0 24px;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: color .18s;
+  user-select: none;
+  position: relative;
+  letter-spacing: -.01em;
+  white-space: nowrap;  /* 탭 텍스트 줄바꿈 방지 */
+  flex-shrink: 0;
+}
+
+/* 활성 탭 밑줄 애니메이션 */
+.tab::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 80%;
+  height: 2.5px;
+  background: var(--navy);
+  border-radius: 2px 2px 0 0;
+  transition: transform .2s ease;
+}
+
+.tab:hover               { color: var(--navy); }
+.tab.on                  { color: var(--navy); font-weight: 800; }
+.tab.on::after           { transform: translateX(-50%) scaleX(1); }
+
+/* ── 5. 페이지 전환 ──────────────────────────────────────────────────────── */
+.page    { display: none; }
+.page.on { display: block; }
+
+/* ── 6. 카드 공통 ────────────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: var(--sh);
+  padding: 22px;
+}
+
+/* 카드 헤더 행 (제목 + 액션 버튼) */
+.sec {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sec h3 {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  color: var(--navy);
+  line-height: 1.3;
+}
+
+.sec p {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* 태그 pill (보고서 탭) */
+.tag {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: rgba(23, 63, 120, .07);
+  color: var(--navy);
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+/* ── 7. 그리드 레이아웃 ──────────────────────────────────────────────────── */
+/* 3열 — 메인 프리뷰 */
+.g3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+
+/* 2열 */
+.g2 {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 4열 */
+.g4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 1열 */
+.g1 { margin-bottom: 16px; }
+
+/* 관세+환율 카드 — 환율 섹션을 하단에 자연스럽게 배치 */
+.tariff-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.exchange-section {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+/* ── 8. 뱃지 (bdg) ───────────────────────────────────────────────────────── */
+.bdg {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bdg.green  { background: rgba(45, 152, 112, .12);  color: var(--green); }
+.bdg.orange { background: rgba(240, 161, 58, .15);  color: #95560a; }
+.bdg.red    { background: rgba(200, 86, 77, .10);   color: var(--red); }
+.bdg.blue   { background: rgba(58, 130, 240, .12);  color: #2054b5; }
+.bdg.gray   { background: rgba(23, 63, 120, .08);   color: var(--navy); }
+
+/* ── 9. 내부 행 (irow) ───────────────────────────────────────────────────── */
+.irow {
+  background: var(--inner);
+  border-radius: 12px;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+}
+
+.irow:last-child { margin-bottom: 0; }
+
+.irow .tit {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.irow .sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.irow-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 뉴스 아이템 hover */
+a.news-item,
+a.news-item:visited { text-decoration: none; }
+a.news-item:hover   { background: rgba(23, 63, 120, .07); }
+a.news-item:hover .tit { color: var(--navy2); }
+
+/* 뉴스 로드 중 안내 */
+.news-placeholder {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* 관세 비율 표시 */
+.tariff-rate {
+  font-size: 18px;
+  font-weight: 900;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tariff-rate.green { color: var(--green); }
+.tariff-rate.navy  { font-size: 12px; color: var(--navy); font-weight: 800; }
+
+/* ── 10. API 키 배지 ─────────────────────────────────────────────────────── */
+.key-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: default;
+  transition: background .2s;
+}
+
+.key-badge.active   { background: rgba(45, 152, 112, .12); color: var(--green); }
+.key-badge.inactive { background: rgba(23, 63, 120, .06);  color: var(--muted); }
+
+.key-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── 11. 환율 카드 요소 ──────────────────────────────────────────────────── */
+.exchange-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .02em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.exchange-main-rate {
+  font-size: 30px;
+  font-weight: 900;
+  color: var(--navy);
+  letter-spacing: -.04em;
+  line-height: 1;
+}
+
+.exchange-unit {
+  font-size: 14px;
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.exchange-sub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.exchange-source {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+/* 환율·뉴스 새로고침 버튼 */
+.btn-refresh {
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: rgba(23, 63, 120, .07);
+  color: var(--navy);
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background .15s;
+  margin-top: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-refresh:hover    { background: rgba(23, 63, 120, .13); }
+.btn-refresh:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── 12. To-Do 리스트 ────────────────────────────────────────────────────── */
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--inner);
+  cursor: pointer;
+  transition: background .15s, opacity .2s;
+  user-select: none;
+}
+
+.todo-item:hover { background: rgba(23, 63, 120, .07); }
+.todo-item.done  { opacity: .62; }
+
+/* 체크 원 — border 없이 shadow로 구분 */
+.todo-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--sh2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .2s, box-shadow .2s;
+  font-size: 11px;
+  font-weight: 800;
+  color: transparent;
+}
+
+.todo-check::after { content: '✓'; }
+
+.todo-item.done .todo-check {
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(45, 152, 112, .25);
+}
+
+.todo-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+
+.todo-item.done .todo-label {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.todo-auto-badge {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 700;
+  background: rgba(23, 63, 120, .05);
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* 항목 추가 행 */
+.todo-add-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.todo-input {
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  box-shadow: var(--sh2);
+  transition: box-shadow .15s;
+}
+
+.todo-input:focus       { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
+.todo-input::placeholder { color: var(--muted); }
+
+.btn-todo-add {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .15s;
+  white-space: nowrap;
+}
+
+.btn-todo-add:hover { background: var(--navy2); }
+
+/* ── 13. 1공정 — 셀렉터 카드 ────────────────────────────────────────────── */
+.selector-card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 22px 26px;
+  margin-bottom: 16px;
+  box-shadow: var(--sh);
+}
+
+.selector-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 12px;
+}
+
+.selector-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+select {
+  flex: 1;
+  height: 42px;
+  padding: 0 40px 0 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text);
+  background-color: var(--inner);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23173f78' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+  box-shadow: var(--sh3);
+  transition: box-shadow .15s;
+}
+
+select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
+
+.btn-analyze {
+  height: 42px;
+  padding: 0 24px;
+  background: var(--navy);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, opacity .15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.btn-analyze:hover:not(:disabled) { background: var(--navy2); }
+.btn-analyze:disabled              { opacity: .45; cursor: not-allowed; }
+
+/* ── 14. 1공정 — 진행 단계 ───────────────────────────────────────────────── */
+.progress-row         { display: none; gap: 0; margin-top: 20px; }
+.progress-row.visible { display: flex; }
+
+.prog-step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+/* 단계 간 연결선 — background 사용 */
+.prog-step::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  right: -50%;
+  width: 100%;
+  height: 2px;
+  background: rgba(23, 63, 120, .10);
+  z-index: 0;
+}
+
+.prog-step:last-child::after { display: none; }
+.prog-step.done::after       { background: rgba(45, 152, 112, .40); }
+
+.prog-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--inner);
+  box-shadow: var(--sh2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  z-index: 1;
+  position: relative;
+  transition: all .3s;
+}
+
+.prog-step.active .prog-dot {
+  color: var(--navy);
+  background: rgba(23, 63, 120, .10);
+  box-shadow: 0 0 0 4px rgba(23, 63, 120, .08);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.prog-step.done .prog-dot {
+  background: rgba(45, 152, 112, .15);
+  color: var(--green);
+  box-shadow: none;
+}
+
+.prog-step.error .prog-dot {
+  background: rgba(200, 86, 77, .10);
+  color: var(--red);
+  box-shadow: none;
+}
+
+.prog-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.prog-step.active .prog-label { color: var(--navy); font-weight: 600; }
+.prog-step.done   .prog-label { color: var(--green); }
+.prog-step.error  .prog-label { color: var(--red); }
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.12); }
+}
+
+/* ── 15. 1공정 — 분석 결과 카드 ──────────────────────────────────────────── */
+.result-card,
+.papers-card,
+.report-card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 24px 26px;
+  margin-bottom: 16px;
+  box-shadow: var(--sh);
+  display: none;
+}
+
+.result-card.visible,
+.papers-card.visible,
+.report-card.visible { display: block; }
+
+.card-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--navy);
+  flex-shrink: 0;
+}
+
+/* ── 16. 1공정 — 신호등 ──────────────────────────────────────────────────── */
+.rs-block {
+  padding: 18px 0 8px;
+}
+
+.rs-block:first-of-type { padding-top: 0; }
+
+/* 섹션 구분선 */
+.rs-block + .rs-block::before {
+  content: '';
+  display: block;
+  height: 1px;
+  background: rgba(23, 63, 120, .06);
+  margin-bottom: 18px;
+  margin-top: -8px;
+}
+
+.rs-block-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  margin-bottom: 10px;
+}
+
+.rs-product-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rs-verdict-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* 신호등 하우징 */
+.traffic-light {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: #1f2937;
+  border-radius: 12px;
+  padding: 9px 10px;
+  flex-shrink: 0;
+}
+
+.tl-lamp {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  opacity: .2;
+  transition: opacity .35s, box-shadow .35s;
+}
+
+.tl-red    { background: #ef4444; }
+.tl-yellow { background: #f59e0b; }
+.tl-green  { background: #10b981; }
+
+.tl-lamp.on       { opacity: 1; }
+.tl-red.on        { box-shadow: 0 0 10px #ef4444; }
+.tl-yellow.on     { box-shadow: 0 0 10px #f59e0b; }
+.tl-green.on      { box-shadow: 0 0 10px #10b981; }
+
+/* 판정 배지 */
+.verdict-badge {
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.v-ok   { background: rgba(45, 152, 112, .12);  color: var(--green); }
+.v-warn { background: rgba(201, 139, 40, .12);  color: var(--warn); }
+.v-err  { background: rgba(200, 86, 77, .10);   color: var(--red); }
+.v-none { background: #f3f4f6;                  color: var(--muted); }
+
+.verdict-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.3;
+}
+
+.verdict-inn {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── 17. 1공정 — 판정 근거 / 전략 그리드 ─────────────────────────────────── */
+.basis-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.basis-item {
+  background: var(--inner);
+  border-radius: 10px;
+  padding: 10px 13px;
+}
+
+.basis-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 5px;
+}
+
+.basis-value {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.pbs-price-block {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+/* 전략 그리드 (3열) */
+.rs-strategy-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr 1fr;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.rs-strategy-item {
+  background: var(--inner);
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-height: 64px;
+}
+
+.rs-strategy-sub {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 8px;
+}
+
+/* 진입 경로 배지 */
+.entry-pathway {
+  display: none;
+  padding: 5px 13px;
+  background: rgba(23, 63, 120, .08);
+  color: var(--navy);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── 18. 논문 / 보고서 카드 ──────────────────────────────────────────────── */
+.paper-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+}
+
+.paper-item + .paper-item {
+  box-shadow: inset 0 1px 0 rgba(23, 63, 120, .06);
+}
+
+.paper-arrow  { color: var(--navy); flex-shrink: 0; font-size: 14px; margin-top: 2px; }
+.paper-link   { color: var(--navy); text-decoration: none; font-weight: 600; font-size: 13px; }
+.paper-link:hover { text-decoration: underline; }
+.paper-src    { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.paper-reason { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* PDF 다운로드 버튼 */
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: rgba(23, 63, 120, .07);
+  color: var(--navy);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background .15s;
+}
+
+.btn-download:hover { background: rgba(23, 63, 120, .13); }
+
+.report-state {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 재분석 버튼 */
+.btn-reanalyze {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 7px 18px;
+  background: rgba(23, 63, 120, .07);
+  color: var(--navy);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.btn-reanalyze:hover { background: rgba(23, 63, 120, .13); }
+
+/* ── 19. 1공정 — 신약 분석 폼 ───────────────────────────────────────────── */
+.custom-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  align-items: center;
+}
+
+.custom-input {
+  flex: 1 1 160px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--inner);
+  color: var(--text);
+  outline: none;
+  transition: box-shadow .15s;
+  min-width: 0;
+  box-shadow: var(--sh3);
+}
+
+.custom-input:focus       { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
+.custom-input::placeholder { color: var(--muted); }
+
+/* ── 20. 보고서 탭 ───────────────────────────────────────────────────────── */
+.rep-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 13px;
+  background: var(--inner);
+  margin-bottom: 8px;
+  transition: background .15s;
+}
+
+.rep-item:hover      { background: rgba(23, 63, 120, .06); }
+.rep-item:last-child { margin-bottom: 0; }
+
+.rep-item-info    { flex: 1; }
+.rep-item-product { font-size: 14px; font-weight: 800; color: var(--navy); }
+.rep-item-meta    { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.rep-item-verdict { flex-shrink: 0; }
+
+.rep-empty {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 32px 0;
+  text-align: center;
+  line-height: 1.9;
+}
+
+/* ── 21. 빈 페이지 (2·3공정) ─────────────────────────────────────────────── */
+.empty-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 340px;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.empty-page .ep-icon { font-size: 44px; opacity: .35; }
+.empty-page .ep-msg  { font-size: 15px; font-weight: 800; color: var(--navy); opacity: .55; }
+.empty-page .ep-sub  { font-size: 12px; }
+
+/* ── 22. 보고서 로딩 스피너 ──────────────────────────────────────────────── */
+.report-loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(var(--navy) 75%, rgba(23, 63, 120, .15) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent 60%, #000 60%);
+          mask: radial-gradient(farthest-side, transparent 60%, #000 60%);
+  animation: spin .7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(1turn); } }
+
+/* ── 23. 반응형 ──────────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .g3 { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 960px) {
+  .g2 { grid-template-columns: 1fr; }
+  .g3 { grid-template-columns: 1fr; }
+  .rs-strategy-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .main         { padding: 14px 16px 24px; }
+  .topbar       { padding: 10px 16px; }
+  .brand-text h1 { font-size: 13px; }
+  .g4           { grid-template-columns: repeat(2, 1fr); }
+  .selector-row { flex-direction: column; }
+  .btn-analyze  { width: 100%; justify-content: center; }
+  .custom-form  { flex-direction: column; }
+  .custom-form .btn-analyze { width: 100%; }
+  .key-status   { display: none; }  /* 모바일에서 키 배지 숨김 */
+}
+
+@media (max-width: 480px) {
+  .nav .tab { padding: 0 14px; font-size: 12px; }
+}
+
+/* ── 24. 스크롤바 ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(23, 63, 120, .15); border-radius: 2px; }
