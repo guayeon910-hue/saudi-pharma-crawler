@@ -291,9 +291,9 @@ a { color: inherit; }
   align-items: start;
 }
 
-/* 메인 탭만: 팀원 레이아웃 — 좁은 관세·환율 | 넓은 뉴스 | 좁은 To-Do, 행 높이 동일 */
+/* 메인 탭만: 세 칸 동일 너비 + 행 높이 동일(본문은 카드 안 스크롤) */
 #main .g3 {
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr) minmax(0, 0.9fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
 }
 
