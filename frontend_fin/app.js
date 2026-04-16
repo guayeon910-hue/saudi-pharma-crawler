@@ -13,9 +13,7 @@
  *   §8  파이프라인       runPipeline / pollPipeline
  *   §9  신약 분석        runCustomPipeline / _pollCustomPipeline
  *   §10 결과 렌더링      renderResult
- *   §11 시장 뉴스
- *   §12 2공정 UI
- *   §13 초기화
+ *   §11 초기화
  *
  * 수정 이력:
  *   B1  /api/sites 제거 → /api/datasource/status
@@ -80,7 +78,6 @@ function goTab(id, el) {
   const page = document.getElementById(id);
   if (page) page.classList.add('on');
   if (el)   el.classList.add('on');
-  if (id === 'p2') populateP2ReportSelect();
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -123,10 +120,9 @@ async function loadExchange() {
     if (srcEl) {
       const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
       const srcLabel = ({
-        http_ecb:     'ECB(경유) · SAR/USD 페그',
         yfinance:    'Yahoo Finance',
-        cache:       '실시간 시세 · 캐시',
-        cache_stale: '실시간 시세 · 이전 캐시',
+        cache:       'Yahoo Finance · 캐시',
+        cache_stale: 'Yahoo Finance · 이전 캐시',
         fallback:    '폴백값 (API 실패)',
       })[data.source] || (data.ok ? '실시간' : '폴백값');
       srcEl.textContent = `${srcLabel} · ${now}`;
@@ -715,7 +711,6 @@ function renderResult(result, refs, pdfName) {
     markTodoDone('rep');
     // N4: 보고서 탭에 자동 등록
     _addReportEntry(result, pdfName);
-    populateP2ReportSelect();
   } else {
     _showReportError();
   }
@@ -869,224 +864,11 @@ async function loadNews() {
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   §12. 2공정 · 수출전략 (가격 분석 UI)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-
-let _p2InputMode = 'ai';
-let _p2Market    = 'public';
-
-function setP2InputMode(mode, el) {
-  _p2InputMode = mode === 'manual' ? 'manual' : 'ai';
-  const aiBtn = document.getElementById('p2-mode-ai');
-  const mBtn  = document.getElementById('p2-mode-manual');
-  if (aiBtn) aiBtn.classList.toggle('on', _p2InputMode === 'ai');
-  if (mBtn)  mBtn.classList.toggle('on',  _p2InputMode === 'manual');
-
-  const hAi = document.getElementById('p2-mode-hint-ai');
-  const hM  = document.getElementById('p2-mode-hint-manual');
-  if (hAi) hAi.style.display = _p2InputMode === 'ai' ? 'block' : 'none';
-  if (hM)  hM.style.display  = _p2InputMode === 'manual' ? 'block' : 'none';
-
-  const stepAi = document.getElementById('p2-step1-ai');
-  const stepM  = document.getElementById('p2-step1-manual');
-  if (stepAi) stepAi.style.display = _p2InputMode === 'ai' ? 'block' : 'none';
-  if (stepM)  stepM.style.display  = _p2InputMode === 'manual' ? 'block' : 'none';
-
-  _p2HideError();
-  const stub = document.getElementById('p2-result-stub');
-  if (stub) stub.style.display = 'none';
-  _p2UpdateRunEnabled();
-}
-
-function setP2Market(market, el) {
-  _p2Market = market === 'private' ? 'private' : 'public';
-  const pub = document.getElementById('p2-market-public');
-  const prv = document.getElementById('p2-market-private');
-  if (pub) pub.classList.toggle('on', _p2Market === 'public');
-  if (prv) prv.classList.toggle('on', _p2Market === 'private');
-
-  const hPub = document.getElementById('p2-market-hint-public');
-  const hPrv = document.getElementById('p2-market-hint-private');
-  if (hPub) hPub.style.display = _p2Market === 'public' ? 'block' : 'none';
-  if (hPrv) hPrv.style.display = _p2Market === 'private' ? 'block' : 'none';
-
-  _p2HideError();
-  _p2UpdateRunEnabled();
-}
-
-function populateP2ReportSelect() {
-  const sel = document.getElementById('p2-report-select');
-  if (!sel) return;
-  const prev  = sel.value;
-  const reports = _loadReports();
-  const parts   = ['<option value="">저장된 1공정 보고서를 선택하세요</option>'];
-  for (const r of reports) {
-    const label = `${_escHtml(r.product)} · ${_escHtml(r.timestamp)}`;
-    parts.push(`<option value="${String(r.id)}">${label}</option>`);
-  }
-  sel.innerHTML = parts.join('');
-  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
-  _p2UpdateRunEnabled();
-}
-
-function _p2UpdatePdfLabel() {
-  const inp = document.getElementById('p2-pdf-input');
-  const lab = document.getElementById('p2-pdf-label');
-  if (!inp || !lab) return;
-  const f = inp.files && inp.files[0];
-  lab.textContent = f ? f.name : '';
-}
-
-function _p2HideError() {
-  const el = document.getElementById('p2-inline-error');
-  if (el) { el.style.display = 'none'; el.textContent = ''; }
-}
-
-function _p2ShowError(msg) {
-  const el = document.getElementById('p2-inline-error');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-
-function _p2UpdateRunEnabled() {
-  const btn = document.getElementById('p2-btn-run');
-  if (!btn) return;
-  let ok = false;
-  if (_p2InputMode === 'ai') {
-    const sel = document.getElementById('p2-report-select');
-    const inp = document.getElementById('p2-pdf-input');
-    const hasRep = sel && sel.value;
-    const hasPdf = inp && inp.files && inp.files[0];
-    ok = !!(hasRep || hasPdf);
-  } else {
-    const man = document.getElementById('p2-manual-product');
-    ok = !!(man && man.value.trim());
-  }
-  btn.disabled = !ok;
-}
-
-function initP2Dropzone() {
-  const z   = document.getElementById('p2-dropzone');
-  const inp = document.getElementById('p2-pdf-input');
-  if (!z || !inp) return;
-
-  const onDrag = ev => { ev.preventDefault(); ev.stopPropagation(); };
-  z.addEventListener('dragenter', onDrag);
-  z.addEventListener('dragover', e => { onDrag(e); z.classList.add('p2-drag'); });
-  z.addEventListener('dragleave', e => {
-    onDrag(e);
-    if (!z.contains(e.relatedTarget)) z.classList.remove('p2-drag');
-  });
-  z.addEventListener('drop', ev => {
-    onDrag(ev);
-    z.classList.remove('p2-drag');
-    const f = ev.dataTransfer.files && ev.dataTransfer.files[0];
-    if (!f) return;
-    if (f.type !== 'application/pdf' && !String(f.name || '').toLowerCase().endsWith('.pdf')) {
-      _p2ShowError('PDF 파일만 업로드할 수 있습니다.');
-      return;
-    }
-    const dt = new DataTransfer();
-    dt.items.add(f);
-    inp.files = dt.files;
-    _p2UpdatePdfLabel();
-    _p2HideError();
-    _p2UpdateRunEnabled();
-  });
-
-  inp.addEventListener('change', () => {
-    _p2UpdatePdfLabel();
-    _p2HideError();
-    _p2UpdateRunEnabled();
-  });
-}
-
-function _bindP2Inputs() {
-  const sel = document.getElementById('p2-report-select');
-  if (sel) sel.addEventListener('change', () => { _p2HideError(); _p2UpdateRunEnabled(); });
-  const man = document.getElementById('p2-manual-product');
-  if (man) man.addEventListener('input', () => { _p2HideError(); _p2UpdateRunEnabled(); });
-}
-
-async function runP2PriceAnalysis() {
-  const btn  = document.getElementById('p2-btn-run');
-  const icon = document.getElementById('p2-btn-icon');
-  const stub = document.getElementById('p2-result-stub');
-  _p2HideError();
-  if (stub) stub.style.display = 'none';
-
-  if (_p2InputMode === 'ai') {
-    const sel = document.getElementById('p2-report-select');
-    const inp = document.getElementById('p2-pdf-input');
-    const hasRep = sel && sel.value;
-    const hasPdf = inp && inp.files && inp.files[0];
-    if (!hasRep && !hasPdf) {
-      _p2ShowError('저장된 1공정 보고서를 선택하거나 PDF를 업로드하세요.');
-      return;
-    }
-  } else {
-    const man = document.getElementById('p2-manual-product');
-    if (!man || !man.value.trim()) {
-      _p2ShowError('품목명을 입력하세요.');
-      return;
-    }
-  }
-
-  const fd = new FormData();
-  fd.append('input_mode', _p2InputMode);
-  fd.append('market_type', _p2Market);
-  if (_p2InputMode === 'ai') {
-    const sel = document.getElementById('p2-report-select');
-    if (sel && sel.value) fd.append('report_id', sel.value);
-    const inp = document.getElementById('p2-pdf-input');
-    if (inp && inp.files && inp.files[0]) fd.append('pdf', inp.files[0]);
-  } else {
-    fd.append('manual_product', document.getElementById('p2-manual-product').value.trim());
-  }
-
-  if (btn) btn.disabled = true;
-  if (icon) icon.textContent = '⏳';
-
-  try {
-    const res = await fetch('/api/p2/price-analyze', { method: 'POST', body: fd });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      _p2ShowError(data.detail || data.message || `요청 실패 (${res.status})`);
-      return;
-    }
-    if (data.ok && stub) {
-      stub.textContent = data.message || '처리되었습니다.';
-      stub.style.display = 'block';
-    } else {
-      _p2ShowError(data.detail || data.message || '응답을 해석할 수 없습니다.');
-    }
-  } catch (e) {
-    console.warn('2공정 분석 요청 실패:', e);
-    _p2ShowError('네트워크 오류 — 잠시 후 다시 시도해 주세요.');
-  } finally {
-    if (icon) icon.textContent = '▶';
-    _p2UpdateRunEnabled();
-  }
-}
-
-function _initP2FromHash() {
-  if (location.hash !== '#p2') return;
-  const tab = document.getElementById('tab-p2');
-  goTab('p2', tab);
-}
-
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   §13. 초기화
+   §12. 초기화
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 loadKeyStatus();   // §6: API 키 배지
 loadExchange();    // §3: 환율 즉시 로드
 initTodo();        // §4: Todo 상태 복원
 renderReportTab(); // §5: 보고서 탭 초기 렌더
-populateP2ReportSelect();
-initP2Dropzone();
-_bindP2Inputs();
-_p2UpdateRunEnabled();
-_initP2FromHash();
 loadNews();        // §11: 시장 뉴스 즉시 로드

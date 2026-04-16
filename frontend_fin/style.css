@@ -25,8 +25,7 @@
  *  18.  1공정 — 논문 / 보고서 카드
  *  19.  1공정 — 신약 분석 폼
  *  20.  보고서 탭
- *  21.  빈 페이지 (3공정)
- *  21b. 2공정 · 수출전략 (가격 분석)
+ *  21.  빈 페이지 (2·3공정)
  *  22.  보고서 로딩 스피너
  *  23.  반응형
  *  24.  스크롤바
@@ -1046,195 +1045,7 @@ select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
   line-height: 1.9;
 }
 
-/* ── 21b. 2공정 · 수출전략 ─────────────────────────────────────────────────── */
-.p2-stack {
-  max-width: 920px;
-  margin: 0 auto;
-}
-
-.p2-card {
-  margin-bottom: 16px;
-}
-
-.p2-card:last-child {
-  margin-bottom: 0;
-}
-
-.p2-seg-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.p2-seg-btn {
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--navy);
-  background: #fff;
-  box-shadow: var(--sh2);
-  transition: background .15s, color .15s, box-shadow .15s;
-}
-
-.p2-seg-btn:hover {
-  box-shadow: var(--sh3);
-  background: rgba(23, 63, 120, .04);
-}
-
-.p2-seg-btn.on {
-  background: var(--navy);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(23, 63, 120, .22);
-}
-
-.p2-seg-btn.on:hover {
-  background: var(--navy2);
-  color: #fff;
-}
-
-.p2-mode-hint {
-  margin-top: 14px;
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.p2-report-select {
-  width: 100%;
-  margin-bottom: 0;
-}
-
-.p2-or {
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
-  margin: 16px 0 14px;
-}
-
-.p2-dropzone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 120px;
-  padding: 20px;
-  border-radius: 14px;
-  background: rgba(23, 63, 120, .06);
-  box-shadow: inset 0 0 0 1px rgba(23, 63, 120, .06);
-  cursor: pointer;
-  transition: background .15s, box-shadow .15s;
-}
-
-.p2-dropzone:hover,
-.p2-dropzone.p2-drag {
-  background: rgba(23, 63, 120, .1);
-  box-shadow: inset 0 0 0 1px rgba(23, 63, 120, .12);
-}
-
-.p2-file-input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.p2-dropzone-icon {
-  font-size: 28px;
-  line-height: 1;
-  opacity: .85;
-}
-
-.p2-dropzone-text {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--navy);
-}
-
-.p2-dropzone-file {
-  font-size: 11.5px;
-  color: var(--muted);
-  font-weight: 600;
-  max-width: 100%;
-  text-align: center;
-  word-break: break-all;
-}
-
-.p2-manual-input {
-  width: 100%;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 10px;
-  font-size: 14px;
-  background: var(--inner);
-  color: var(--text);
-  outline: none;
-  box-shadow: var(--sh3);
-  transition: box-shadow .15s;
-}
-
-.p2-manual-input:focus {
-  box-shadow: 0 0 0 3px rgba(23, 63, 120, .15);
-}
-
-.p2-manual-input::placeholder {
-  color: var(--muted);
-}
-
-.p2-step2-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.p2-step2-left {
-  flex: 1;
-  min-width: 220px;
-}
-
-.p2-market-hint {
-  margin-top: 12px;
-  font-size: 11.5px;
-  color: var(--muted);
-  line-height: 1.55;
-  max-width: 420px;
-}
-
-.p2-step2-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: flex-start;
-}
-
-.p2-run-btn {
-  min-height: 48px;
-  padding: 0 28px;
-}
-
-.p2-inline-error {
-  margin-top: 14px;
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--red);
-}
-
-.p2-result-stub {
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(23, 63, 120, .07);
-  font-size: 13px;
-  color: var(--navy);
-  line-height: 1.55;
-}
-
-/* ── 21. 빈 페이지 (3공정) ─────────────────────────────────────────────── */
+/* ── 21. 빈 페이지 (2·3공정) ─────────────────────────────────────────────── */
 .empty-page {
   display: flex;
   flex-direction: column;
@@ -1287,9 +1098,6 @@ select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
   .custom-form  { flex-direction: column; }
   .custom-form .btn-analyze { width: 100%; }
   .key-status   { display: none; }  /* 모바일에서 키 배지 숨김 */
-  .p2-step2-row { flex-direction: column; }
-  .p2-step2-actions { width: 100%; }
-  .p2-run-btn   { width: 100%; justify-content: center; }
 }
 
 @media (max-width: 480px) {

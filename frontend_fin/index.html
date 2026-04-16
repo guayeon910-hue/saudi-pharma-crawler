@@ -10,7 +10,7 @@
   탭 구조:
     main  — 메인 프리뷰  (관세+환율 카드 | To-Do | 뉴스)
     p1    — 1공정 · 시장조사
-    p2    — 2공정 · 수출전략  (가격 분석 UI + 스텁 API)
+    p2    — 2공정 · 수출전략  (준비 중)
     p3    — 3공정 · 바이어 발굴  (준비 중)
     rep   — 보고서  (1공정 완료 시 자동 등록 · localStorage)
 
@@ -34,7 +34,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
-  <link rel="stylesheet" href="/static/style.css?v=5"/>
+  <link rel="stylesheet" href="/static/style.css?v=4"/>
 </head>
 <body>
 <div class="app">
@@ -78,7 +78,7 @@
   <nav class="nav">
     <a class="tab on" onclick="goTab('main',this)">메인 프리뷰</a>
     <a class="tab"    onclick="goTab('p1',this)">1공정 · 시장조사</a>
-    <a class="tab" id="tab-p2" onclick="goTab('p2',this)">2공정 · 수출전략</a>
+    <a class="tab"    onclick="goTab('p2',this)">2공정 · 수출전략</a>
     <a class="tab"    onclick="goTab('p3',this)">3공정 · 바이어 발굴</a>
     <a class="tab"    onclick="goTab('rep',this)">보고서</a>
   </nav>
@@ -402,61 +402,13 @@
   </div><!-- /#p1 -->
 
   <!-- ════════════════════════════════════════════════════════
-    2공정 · 수출전략  (가격 분석 UI + 스텁 API)
+    2공정 · 수출전략  (준비 중)
   ════════════════════════════════════════════════════════ -->
   <div id="p2" class="page">
-    <div class="g1 p2-stack">
-
-      <article class="card p2-card">
-        <div class="selector-label">입력 모드</div>
-        <div class="p2-seg-row" role="group" aria-label="입력 모드">
-          <button type="button" class="p2-seg-btn on" id="p2-mode-ai" onclick="setP2InputMode('ai', this)">AI 파이프라인</button>
-          <button type="button" class="p2-seg-btn" id="p2-mode-manual" onclick="setP2InputMode('manual', this)">직접 입력</button>
-        </div>
-        <p class="p2-mode-hint" id="p2-mode-hint-ai">보고서를 업로드하면 AI가 가격 정보를 자동 추출·분석합니다.</p>
-        <p class="p2-mode-hint" id="p2-mode-hint-manual" style="display:none">품목명을 입력한 뒤 시장 유형을 선택하고 분석을 실행하세요.</p>
-      </article>
-
-      <article class="card p2-card" id="p2-step1-card">
-        <div class="selector-label">STEP 1 · 보고서 선택</div>
-        <div id="p2-step1-ai">
-          <select id="p2-report-select" class="p2-report-select">
-            <option value="">저장된 1공정 보고서를 선택하세요</option>
-          </select>
-          <div class="p2-or">또는 PDF 직접 업로드</div>
-          <label class="p2-dropzone" id="p2-dropzone" for="p2-pdf-input">
-            <input type="file" id="p2-pdf-input" class="p2-file-input" accept="application/pdf"/>
-            <span class="p2-dropzone-icon" aria-hidden="true">📄</span>
-            <span class="p2-dropzone-text">PDF 파일 선택 / 드래그</span>
-            <span class="p2-dropzone-file" id="p2-pdf-label"></span>
-          </label>
-        </div>
-        <div id="p2-step1-manual" style="display:none">
-          <input type="text" id="p2-manual-product" class="p2-manual-input" placeholder="품목명 (예: Gadvoa Inj.)" autocomplete="off"/>
-        </div>
-      </article>
-
-      <article class="card p2-card">
-        <div class="selector-label">STEP 2 · 시장 선택 및 분석 실행</div>
-        <div class="p2-step2-row">
-          <div class="p2-step2-left">
-            <div class="p2-seg-row" role="group" aria-label="시장 유형">
-              <button type="button" class="p2-seg-btn on" id="p2-market-public" onclick="setP2Market('public', this)">공공 시장</button>
-              <button type="button" class="p2-seg-btn" id="p2-market-private" onclick="setP2Market('private', this)">민간 시장</button>
-            </div>
-            <p class="p2-market-hint" id="p2-market-hint-public">NUPCO 등 공공 조달·입찰 채널과 SFDA 등록 요건을 기준으로 가격·입찰 신호를 분석합니다.</p>
-            <p class="p2-market-hint" id="p2-market-hint-private" style="display:none">병원·도매·소매 등 민간 유통 채널 기준으로 가격 포지션을 분석합니다.</p>
-          </div>
-          <div class="p2-step2-actions">
-            <button type="button" class="btn-analyze p2-run-btn" id="p2-btn-run" onclick="runP2PriceAnalysis()">
-              <span id="p2-btn-icon">▶</span> AI 가격 분석 실행
-            </button>
-          </div>
-        </div>
-        <p class="p2-inline-error" id="p2-inline-error" style="display:none"></p>
-        <div class="p2-result-stub" id="p2-result-stub" style="display:none"></div>
-      </article>
-
+    <div class="empty-page">
+      <div class="ep-icon">🚧</div>
+      <div class="ep-msg">2공정 · 수출전략은 준비 중입니다</div>
+      <div class="ep-sub">추후 업데이트 예정</div>
     </div>
   </div>
 
@@ -498,6 +450,6 @@
 </main>
 </div><!-- /.app -->
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>

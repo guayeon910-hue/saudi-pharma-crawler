@@ -1,0 +1,404 @@
+{
+  "test.com:products": {
+    "price": {
+      "xpath": "//span[@class=\"price\"]",
+      "verified_at": 1.0,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pmc.ncbi.nlm.nih.gov:articles": {
+    "product_name": {
+      "xpath": "//title/text()",
+      "verified_at": 1776222017.489612,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "price": {
+      "xpath": "//text()[contains(., 'SAR') or contains(., '₽') or contains(., '$') or contains(., '€')]",
+      "verified_at": 1776222019.7615685,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//text()[contains(., 'hydroxyurea')]/ancestor::div//text()[contains(., 'Saudi Arabia')]",
+      "verified_at": 1776222022.7170856,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//text()[contains(., 'hydroxyurea')]/ancestor::*[1]/text()[contains(., 'hydroxyurea')]",
+      "verified_at": 1776222025.2274642,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "mithaly.sa:en": {
+    "product_name": {
+      "xpath": "//title/text()",
+      "verified_at": 1776218919.5457518,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//title/text()",
+      "verified_at": 1776218927.4522803,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "tdawi.com:en-sa": {
+    "product_name": {
+      "xpath": "//title/text()",
+      "verified_at": 1776220251.1281414,
+      "success_count": 2,
+      "fail_count": 0
+    }
+  },
+  "www.adamonline.com:en": {
+    "product_name": {
+      "xpath": "//title/text()",
+      "verified_at": 1776219892.376375,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "dbl-pharma.com:product": {
+    "strength": {
+      "xpath": "//h4[contains(text(), 'Dosage and Administration')]/following-sibling::p//text()[contains(., 'mcg')]",
+      "verified_at": 1776219915.519254,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.nahdionline.com:en-sa": {
+    "strength": {
+      "xpath": "//h1/text() | //div[contains(@class, 'product-title')]//text()[contains(., 'µg')] | //text()[contains(., '25/125')]",
+      "verified_at": 1776222042.496452,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//div[contains(@class, 'product')]//div[contains(text(), 'Brand') or contains(text(), 'Manufacturer') or contains(text(), 'الماركة')]//following-sibling::div[1]//text() | //span[contains(text(), 'Brand') or contains(text(), 'Manufacturer')]//following-sibling::span[1]/text() | //dt[contains(text(), 'Brand')]//following-sibling::dd[1]/text()",
+      "verified_at": 1776222041.1713796,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//text()[contains(., 'Hydroxyurea')][1]",
+      "verified_at": 1776222042.496452,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pharmacy.sa:drugs": {
+    "product_name": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.455641,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "price": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.455641,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.455641,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//p[@class='ingredient']/text()",
+      "verified_at": 1776220492.455641,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//p[@class='strength']/text()",
+      "verified_at": 1776220492.455641,
+      "success_count": 2,
+      "fail_count": 0
+    }
+  },
+  "pharma-omethyl cutielet.sa:products": {
+    "product_name": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.4722385,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "price": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.4722385,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.4722385,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.4722385,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.4722385,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pharma-atmeg combigel.sa:products": {
+    "active_ingredient": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.4890287,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.4890287,
+      "success_count": 2,
+      "fail_count": 0
+    }
+  },
+  "pharma-ciloduo.sa:products": {
+    "product_name": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.49314,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.5050063,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pharma-sereterol activair.sa:products": {
+    "price": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.522592,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.522592,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.522592,
+      "success_count": 2,
+      "fail_count": 0
+    }
+  },
+  "pharma-hydrine.sa:products": {
+    "strength": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.5390205,
+      "success_count": 2,
+      "fail_count": 0
+    },
+    "product_name": {
+      "xpath": "//h3[@class='name']/text()",
+      "verified_at": 1776220492.5390205,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "price": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.5390205,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.5390205,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.mims.com:philippines": {
+    "product_name": {
+      "xpath": "//div[@oncut='return false']//div[1]/div[1]/text()[1]",
+      "verified_at": 1776220263.1672883,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//div[contains(text(), 'Each controlled-release tablet contains')]//following::text()[contains(., 'mg')][1]",
+      "verified_at": 1776220271.0966532,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.cphi-online.com:product": {
+    "product_name": {
+      "xpath": "//h1/text()",
+      "verified_at": 1776220292.6583364,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//li[2]/text()",
+      "verified_at": 1776220296.115073,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.kup.co.kr:product": {
+    "active_ingredient": {
+      "xpath": "//section[contains(., 'Gastiin CR Tab.')]//text()[contains(., 'Mosapride Citrate')][1]",
+      "verified_at": 1776220309.882375,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.vinmec.com:eng": {
+    "strength": {
+      "xpath": "//text()[contains(., 'Mosapride') and contains(., 'mg')][1]",
+      "verified_at": 1776220320.1646218,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.rosepharmacy.com:product": {
+    "product_name": {
+      "xpath": "//h1[@class='page-title']/text()",
+      "verified_at": 1776220326.6577816,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.scribd.com:document": {
+    "product_name": {
+      "xpath": "//title/text()",
+      "verified_at": 1776220335.5682204,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pharma-rosumeg combigel.sa:products": {
+    "product_name": {
+      "xpath": "//p[@class='mfr']/text()",
+      "verified_at": 1776220492.4793463,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "pharma-gastiin cr.sa:products": {
+    "product_name": {
+      "xpath": "//span[@class='price']/text()",
+      "verified_at": 1776220492.510106,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "bmgpharmacy.com:category": {
+    "product_name": {
+      "xpath": "//main//h1/text() | //main//h2/text() | //main//div[@class='product-name']/text() | //main//span[@class='product-title']/text()",
+      "verified_at": 1776220641.0245824,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "tajpharmaindia.com:hydroxyurea-capsules-manufacturers-india-pioneer-exporters": {
+    "product_name": {
+      "xpath": "//div[contains(text(), 'Hydroxyurea Capsules')]/text()[1]",
+      "verified_at": 1776221948.7567773,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//div[contains(text(), 'Hydroxyurea Capsules')]//text()[contains(., 'Hydroxyurea')][1]",
+      "verified_at": 1776221957.1976416,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//div[contains(text(), 'Hydroxyurea Capsules')]//text()[contains(., 'mg')]",
+      "verified_at": 1776221958.2231522,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "hubpharmafrica.com:product": {
+    "product_name": {
+      "xpath": "//main//text()[contains(., 'Hydrine Capsules')][1]",
+      "verified_at": 1776221962.2538176,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//main//text()[contains(., 'Hydrine Capsules')]/ancestor::main//text()[1]",
+      "verified_at": 1776221965.4034598,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//main//text()[contains(., 'Hydroxyurea')][1]",
+      "verified_at": 1776221967.2942362,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//main//text()[contains(., 'mg')][1]",
+      "verified_at": 1776221969.3394842,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.actizapharma.com:product": {
+    "manufacturer": {
+      "xpath": "//title/text()",
+      "verified_at": 1776221985.2934515,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "www.tradeindia.com:manufacturers": {
+    "product_name": {
+      "xpath": "//h1/text()",
+      "verified_at": 1776222008.5625482,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "manufacturer": {
+      "xpath": "//div[contains(text(), 'Business Type: Manufacturer')]//preceding::text()[contains(., 'Pharmaceutical')][1] | //text()[contains(., 'Ocean Pharmaceutical')]",
+      "verified_at": 1776222011.534848,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "active_ingredient": {
+      "xpath": "//h1/text()",
+      "verified_at": 1776222012.2506082,
+      "success_count": 1,
+      "fail_count": 0
+    },
+    "strength": {
+      "xpath": "//text()[contains(., 'mg')][contains(., 'Hydroxyurea')]/ancestor::*[1]/text()[contains(., 'mg')]",
+      "verified_at": 1776222014.7164118,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  },
+  "sanlivepharmacy.com:products": {
+    "product_name": {
+      "xpath": "//div[contains(@class, '') or not(@class)]//h1 | //div[contains(text(), 'Hydrine Capsules')]//text()[normalize-space()][1] | //div[following-sibling::div[contains(text(), '₦97,500')]][1]//text()[normalize-space()][1]",
+      "verified_at": 1776222050.5862482,
+      "success_count": 1,
+      "fail_count": 0
+    }
+  }
+}

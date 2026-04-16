@@ -1,0 +1,30 @@
+{
+  "example.com::Drug": {
+    "ts": 1234567.0,
+    "data": {
+      "relevance_score": 0.8
+    }
+  },
+  "dist.sa::ErrorDrug": {
+    "ts": 0.0,
+    "data": {
+      "relevance_score": 0.7,
+      "category": "distributor",
+      "has_price_data": false,
+      "has_product_listing": true,
+      "language": "en",
+      "description": "Distributor site"
+    }
+  },
+  "fallback.sa::TestDrug": {
+    "ts": 0.0,
+    "data": {
+      "relevance_score": 0.8,
+      "category": "pharma_retailer",
+      "has_price_data": true,
+      "has_product_listing": true,
+      "language": "en",
+      "description": "Fallback source"
+    }
+  }
+}

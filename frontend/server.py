@@ -34,7 +34,7 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1706,6 +1706,79 @@ async def api_news():
             },
         ]
     return {"ok": True, "items": items}
+
+
+@app.post("/api/p2/price-analyze")
+async def api_p2_price_analyze(
+    input_mode: str = Form(...),
+    market_type: str = Form(...),
+    report_id: Optional[str] = Form(default=None),
+    manual_product: Optional[str] = Form(default=None),
+    pdf: Optional[UploadFile] = File(default=None),
+):
+    """2공정 가격 분석 — UI 연동용 스텁. 이후 Claude/파서 로직을 이 엔드포인트에 연결."""
+    im = (input_mode or "").strip().lower()
+    mt = (market_type or "").strip().lower()
+    if im not in ("ai", "manual"):
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "detail": "input_mode는 ai 또는 manual 이어야 합니다."},
+        )
+    if mt not in ("public", "private"):
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "detail": "market_type는 public 또는 private 이어야 합니다."},
+        )
+
+    rid = (report_id or "").strip()
+    man = (manual_product or "").strip()
+    has_pdf = pdf is not None and bool((pdf.filename or "").strip())
+
+    if im == "ai":
+        if not rid and not has_pdf:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "저장된 보고서(report_id) 선택 또는 PDF 업로드가 필요합니다."},
+            )
+    else:
+        if not man:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "품목명(manual_product)을 입력하세요."},
+            )
+
+    if has_pdf:
+        ctype = (pdf.content_type or "").lower()
+        if ctype and "pdf" not in ctype and ctype != "application/octet-stream":
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "PDF 파일만 업로드할 수 있습니다."},
+            )
+        max_bytes = 8 * 1024 * 1024
+        total = 0
+        while True:
+            chunk = await pdf.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                return JSONResponse(
+                    status_code=413,
+                    content={"ok": False, "detail": "PDF는 8MB 이하만 허용됩니다."},
+                )
+
+    return {
+        "ok": True,
+        "status": "stub",
+        "message": "가격 분석 파이프라인은 곧 연결됩니다. 현재는 스텁 응답입니다.",
+        "received": {
+            "input_mode": im,
+            "market_type": mt,
+            "has_report_id": bool(rid),
+            "has_pdf": has_pdf,
+            "manual_len": len(man) if im == "manual" else 0,
+        },
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
