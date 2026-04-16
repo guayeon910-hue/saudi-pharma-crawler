@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +36,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DOMAIN_CACHE_PATH = Path(__file__).resolve().parents[2] / "reports" / "cache" / "domain_eval.json"
-_DOMAIN_CACHE_TTL_SEC = int(os.getenv("PINPOINT_CACHE_TTL_DAYS", "7")) * 24 * 3600
+# [B6] max(1, ...) 으로 TTL=0 환경변수가 캐시를 완전 무력화하는 것 방지
+_DOMAIN_CACHE_TTL_SEC = max(1, int(os.getenv("PINPOINT_CACHE_TTL_DAYS", "7"))) * 24 * 3600
+_DOMAIN_CACHE_MAX_ENTRIES = 500  # 캐시 최대 항목 수 (domain::drug_key 단위)
+_DOMAIN_CACHE_LOCK = threading.Lock()  # 동시 read-modify-write 방지
 
 
 def _load_domain_cache() -> dict:
@@ -50,12 +54,23 @@ def _load_domain_cache() -> dict:
 
 
 def _save_domain_cache(cache: dict) -> None:
-    """도메인 평가 캐시 저장. 실패 시 무시."""
+    """도메인 평가 캐시 저장. 원자적 write + 크기 상한 적용."""
     try:
+        # [B8] 크기 상한: ts 오래된 순으로 초과분 제거
+        if len(cache) > _DOMAIN_CACHE_MAX_ENTRIES:
+            sorted_keys = sorted(
+                cache,
+                key=lambda k: float(cache[k].get("ts") or 0),
+            )
+            for k in sorted_keys[: len(cache) - _DOMAIN_CACHE_MAX_ENTRIES]:
+                del cache[k]
+
         _DOMAIN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_DOMAIN_CACHE_PATH, "w", encoding="utf-8") as f:
+        tmp = _DOMAIN_CACHE_PATH.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
-    except OSError as e:
+        os.replace(tmp, _DOMAIN_CACHE_PATH)  # 원자적 교체 (Windows 포함)
+    except (OSError, ValueError) as e:
         logger.debug("domain cache save 실패 (무시): %s", e)
 
 # ---------------------------------------------------------------------------
@@ -86,6 +101,38 @@ class DiscoveredSource:
 # ---------------------------------------------------------------------------
 # 제외 도메인 (이미 고정 10개에 포함되거나, 일반적 비관련 사이트)
 # ---------------------------------------------------------------------------
+
+# KSA/GCC가 아닌 동남아·남아 등 검색 노이즈 URL — 사우디 시장 조사에는 부적합·페치 실패 다발
+_LOW_PRIORITY_TLD_SUFFIXES = (
+    ".ph", ".id", ".vn", ".th", ".in", ".pk", ".bd", ".lk", ".np", ".mm",
+)
+
+
+def _search_result_domain_tier(domain: str) -> int:
+    """0=SA 우선, 1=GCC, 2=기타, 3=동남아/남아 등 저우선."""
+    d = (domain or "").lower()
+    if d.endswith(".sa") or ".sa." in d:
+        return 0
+    if any(d.endswith(s) for s in (".ae", ".kw", ".bh", ".om", ".qa")):
+        return 1
+    if any(d.endswith(s) for s in _LOW_PRIORITY_TLD_SUFFIXES):
+        return 3
+    return 2
+
+
+def prioritize_ksa_search_results(results: list[dict]) -> list[dict]:
+    """DuckDuckGo 결과를 사우디·GCC 관련 도메인이 먼저 오도록 정렬. 충분한 상위 결과가 있으면 저우선 TLD 제외."""
+    if not results:
+        return results
+    indexed = [( _search_result_domain_tier(r.get("domain", "")), i, r) for i, r in enumerate(results)]
+    indexed.sort(key=lambda x: (x[0], x[1]))
+    out = [x[2] for x in indexed]
+    n_low = sum(1 for r in out if _search_result_domain_tier(r.get("domain", "")) == 3)
+    n_ok = len(out) - n_low
+    if n_low and n_ok >= 3:
+        out = [r for r in out if _search_result_domain_tier(r.get("domain", "")) != 3]
+    return out
+
 
 EXCLUDED_DOMAINS = {
     # 이미 크롤러 존재
@@ -135,6 +182,7 @@ The queries should help find:
 5. Regional/GCC pharmaceutical databases
 
 Return JSON array of 5 query strings. Each query MUST include "Saudi" or "KSA" or "سعودية".
+Prefer sources in Saudi Arabia (.sa) or GCC; do NOT optimize for Philippines, India, or Southeast Asia pharmacies.
 Example format: ["query 1", "query 2", "query 3", "query 4", "query 5"]"""
 
 
@@ -182,11 +230,11 @@ def _fallback_queries(drug_info: dict) -> list[str]:
     first_ingredient = ingredients.split("+")[0].strip() if ingredients else name
 
     return [
-        f"{name} pharmacy Saudi Arabia buy online",
+        f"{name} site:.sa pharmacy price SAR",
+        f"{first_ingredient} Saudi Arabia pharmacy buy online",
         f"{first_ingredient} price Saudi Arabia SAR",
-        f"{first_ingredient} {form} Saudi pharmaceutical distributor",
+        f"{first_ingredient} {form} KSA pharmaceutical",
         f"صيدلية {name} السعودية سعر",
-        f"{first_ingredient} KSA drug registration database",
     ]
 
 
@@ -291,38 +339,110 @@ def _parse_ddg_results(html: str, max_results: int) -> list[dict]:
 # URL → HTML 가져오기
 # ---------------------------------------------------------------------------
 
+# 최신 크롬 UA (일부 소매 사이트가 구버전 UA·최소 헤더만으로 403/빈 응답)
+_DEFAULT_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _browser_like_headers(url: str, variant: int) -> dict[str, str]:
+    """variant 0: 직접 방문, 1: 구글 레퍼러, 2: 동일 origin 레퍼러 + 다른 UA."""
+    from antibot import pick_ua
+
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
+
+    ua = _DEFAULT_CHROME_UA if variant < 2 else pick_ua()
+    h: dict[str, str] = {
+        "User-Agent": ua,
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9,ar-SA;q=0.85,ar;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+    }
+    if variant == 0:
+        h["Sec-Fetch-Site"] = "none"
+    elif variant == 1:
+        h["Referer"] = "https://www.google.com/"
+        h["Sec-Fetch-Site"] = "cross-site"
+    else:
+        h["Referer"] = (origin + "/") if origin else "https://www.google.com/"
+        h["Sec-Fetch-Site"] = "same-origin"
+    return h
+
+
+def fetch_page_html_ex(
+    url: str,
+    *,
+    http_client,
+    timeout: float = 32.0,
+    max_attempts: int = 3,
+) -> tuple[Optional[str], str]:
+    """URL에서 HTML 가져오기. 재시도·브라우저형 헤더·상세 실패 사유.
+
+    Returns
+    -------
+    (html 또는 None, 빈 문자열 또는 마지막 실패 요약)
+    """
+    from antibot import AntiBotType, detect as detect_antibot
+
+    last_err = "요청 없음"
+    attempts = max(1, min(max_attempts, 5))
+
+    for attempt in range(attempts):
+        headers = _browser_like_headers(url, attempt % 3)
+        try:
+            resp = http_client.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+            text = resp.text or ""
+            hdrs = dict(resp.headers)
+
+            if resp.status_code != 200:
+                ab_type = detect_antibot(resp.status_code, text[:4000], hdrs)
+                last_err = f"HTTP {resp.status_code}"
+                if ab_type != AntiBotType.NONE:
+                    last_err += f" ({ab_type.value})"
+                logger.info("페이지 가져오기 실패: %s → %s", url, last_err)
+                time.sleep(0.35 + attempt * 0.25)
+                continue
+
+            ab_type = detect_antibot(200, text[:6000], hdrs)
+            if ab_type == AntiBotType.CLOUDFLARE:
+                last_err = "HTTP 200 (Cloudflare challenge 페이지)"
+                time.sleep(0.4 + attempt * 0.2)
+                continue
+
+            if len(text.strip()) < 80:
+                last_err = "HTTP 200 (본문 너무 짧음)"
+                time.sleep(0.3)
+                continue
+
+            return text, ""
+
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e!s}"[:200]
+            logger.warning("페이지 요청 예외 %s: %s", url, last_err)
+            time.sleep(0.45 + attempt * 0.3)
+
+    return None, last_err
+
+
 def fetch_page_html(
     url: str,
     *,
     http_client,
-    timeout: float = 15.0,
+    timeout: float = 32.0,
 ) -> Optional[str]:
-    """URL에서 HTML 가져오기. anti-bot 대응 포함."""
-    from antibot import pick_ua, detect as detect_antibot
-
-    headers = {
-        "User-Agent": pick_ua(),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5,ar;q=0.3",
-    }
-
-    try:
-        resp = http_client.get(url, headers=headers, timeout=timeout, follow_redirects=True)
-
-        if resp.status_code != 200:
-            ab_type = detect_antibot(
-                resp.status_code,
-                resp.text[:2000],
-                dict(resp.headers),
-            )
-            logger.info("페이지 가져오기 실패: %s → %d (antibot: %s)", url, resp.status_code, ab_type)
-            return None
-
-        return resp.text
-
-    except Exception as e:
-        logger.error("페이지 요청 실패 %s: %s", url, e)
-        return None
+    """URL에서 HTML 가져오기. `fetch_page_html_ex` 래퍼."""
+    html, _ = fetch_page_html_ex(url, http_client=http_client, timeout=timeout)
+    return html
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +489,8 @@ def evaluate_source(
     domain: str,
     title: str,
     snippet: str,
+    *,
+    drug_key: str = "",
 ) -> DiscoveredSource:
     """LLM으로 발견된 사이트 평가.
 
@@ -376,28 +498,37 @@ def evaluate_source(
     ----------
     llm_client : ClaudeClient
     url, domain, title, snippet : 사이트 정보
+    drug_key : str
+        약품 식별자 (trade_name 등). 캐시 키에 포함되어 약품별 평가가 교차 오염되지 않도록 함.
 
     Returns
     -------
     DiscoveredSource
     """
-    # 핀포인트: 도메인 캐시 조회 (TTL 내면 LLM 호출 생략)
-    cache = _load_domain_cache()
-    entry = cache.get(domain)
-    if entry and (time.time() - entry.get("ts", 0)) < _DOMAIN_CACHE_TTL_SEC:
-        logger.info("evaluate_source 캐시 히트: %s", domain)
-        data = entry.get("data", {})
-        cached = DiscoveredSource(url=url, domain=domain, title=title)
-        cached.relevance_score = float(data.get("relevance_score", 0.0))
-        cached.category = data.get("category", "other")
-        cached.has_price_data = bool(data.get("has_price_data", False))
-        cached.has_product_listing = bool(data.get("has_product_listing", False))
-        cached.language = data.get("language", "")
-        cached.description = data.get("description", "")
-        if cached.relevance_score < 0.6:
-            cached.rejection_reason = f"Low relevance (cached): {cached.relevance_score:.2f}"
-        return cached
+    # [B1] 캐시 키 = 도메인 + 약품 (약품별 relevance가 혼재하지 않도록)
+    cache_key = f"{domain}::{drug_key}" if drug_key else domain
 
+    # [B3/B4] Lock 하에서 캐시 읽기 (읽기만이므로 빠르게 반환)
+    with _DOMAIN_CACHE_LOCK:
+        cache = _load_domain_cache()
+        entry = cache.get(cache_key)
+        # [B5] ts 키 없거나 타입 불일치 시 0으로 안전 처리
+        ts = float(entry.get("ts") or 0) if entry else 0.0
+        if entry and (time.time() - ts) < _DOMAIN_CACHE_TTL_SEC:
+            logger.info("evaluate_source 캐시 히트: %s", cache_key)
+            data = entry.get("data", {})
+            cached = DiscoveredSource(url=url, domain=domain, title=title)
+            cached.relevance_score = float(data.get("relevance_score", 0.0))
+            cached.category = data.get("category", "other")
+            cached.has_price_data = bool(data.get("has_price_data", False))
+            cached.has_product_listing = bool(data.get("has_product_listing", False))
+            cached.language = data.get("language", "")
+            cached.description = data.get("description", "")
+            if cached.relevance_score < 0.6:
+                cached.rejection_reason = f"Low relevance (cached): {cached.relevance_score:.2f}"
+            return cached
+
+    # 캐시 미스 → LLM 호출 (lock 밖에서 실행하여 병렬 I/O 허용)
     # 핀포인트: 3000 → 1500자로 축소
     prompt = EVALUATE_USER_TEMPLATE.format(
         url=url,
@@ -421,19 +552,21 @@ def evaluate_source(
         if source.relevance_score < 0.6:
             source.rejection_reason = f"Low relevance: {source.relevance_score:.2f} - {source.description}"
 
-        # 캐시 저장 (성공 시에만)
-        cache[domain] = {
-            "ts": time.time(),
-            "data": {
-                "relevance_score": source.relevance_score,
-                "category": source.category,
-                "has_price_data": source.has_price_data,
-                "has_product_listing": source.has_product_listing,
-                "language": source.language,
-                "description": source.description,
-            },
-        }
-        _save_domain_cache(cache)
+        # [B3/B4] 저장 시 Lock 재획득 (write 원자성 보장)
+        with _DOMAIN_CACHE_LOCK:
+            cache = _load_domain_cache()
+            cache[cache_key] = {
+                "ts": time.time(),
+                "data": {
+                    "relevance_score": source.relevance_score,
+                    "category": source.category,
+                    "has_price_data": source.has_price_data,
+                    "has_product_listing": source.has_product_listing,
+                    "language": source.language,
+                    "description": source.description,
+                },
+            }
+            _save_domain_cache(cache)
 
     except Exception as e:
         logger.error("사이트 평가 실패 %s: %s", url, e)
@@ -609,10 +742,13 @@ def discover_sources(
                 all_search_results.append(r)
         time.sleep(fetch_delay)
 
-    logger.info("[%s] URL %d개 수집 (중복 제거)", drug_name, len(all_search_results))
+    all_search_results = prioritize_ksa_search_results(all_search_results)
+    logger.info("[%s] URL %d개 수집 (KSA/GCC 우선 정렬 후)", drug_name, len(all_search_results))
 
     # Step 3-5: 각 URL → HTML 가져오기 → 전처리 → LLM 판별
-    from html_preprocessor import preprocess_html
+    # [A2] import 스타일 통일 (bare name → 절대 경로)
+    # [A1] 키워드 집중 스니펫 추출로 전환 (extract_pinpoint_snippet)
+    from assets.snippets.html_preprocessor import extract_pinpoint_snippet
 
     valid_sources: list[DiscoveredSource] = []
     rejected_sources: list[DiscoveredSource] = []
@@ -626,19 +762,21 @@ def discover_sources(
         html = fetch_page_html(url, http_client=http_client)
         if html:
             pages_fetched += 1
-            # 전처리 (논문1 파이프라인)
-            prep = preprocess_html(html, max_chars=1500)
-            snippet = prep.prompt_text if prep.prompt_text else sr.get("snippet", "")
+            # [A1] 핀포인트 추출: 약품명 키워드 주변 블록만 선별 (토큰 절감)
+            snippet = extract_pinpoint_snippet(html, keywords=[drug_name], max_chars=1500)
+            if not snippet:
+                snippet = sr.get("snippet", "")
         else:
             snippet = sr.get("snippet", "")
 
-        # LLM 판별
+        # LLM 판별 — [B1] drug_key 전달로 약품별 캐시 격리
         source = evaluate_source(
             llm_client,
             url=url,
             domain=domain,
             title=sr.get("title", ""),
             snippet=snippet,
+            drug_key=drug_name,
         )
         source.search_query = sr.get("search_query", "")
 

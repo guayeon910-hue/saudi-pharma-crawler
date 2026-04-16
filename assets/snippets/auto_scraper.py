@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,7 +45,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _XPATH_CACHE_PATH = Path(__file__).resolve().parents[2] / "reports" / "cache" / "xpath_patterns.json"
-_XPATH_CACHE_MAX_FAILS = 3  # 연속 실패 시 재생성
+_XPATH_CACHE_MAX_FAILS = 3    # 연속 실패 횟수 상한 — 초과 시 재생성
+_XPATH_CACHE_MAX_ENTRIES = 300  # 캐시 최대 항목 수 (도메인+경로 단위)
+_XPATH_CACHE_LOCK = threading.Lock()  # 동시 read-modify-write 방지
 
 
 def _load_xpath_cache() -> dict:
@@ -59,12 +62,29 @@ def _load_xpath_cache() -> dict:
 
 
 def _save_xpath_cache(cache: dict) -> None:
-    """XPath 패턴 캐시 저장. 실패 시 무시."""
+    """XPath 패턴 캐시 저장. 원자적 write + 크기 상한 적용."""
     try:
+        # 크기 상한: verified_at 오래된 순으로 초과분 제거
+        if len(cache) > _XPATH_CACHE_MAX_ENTRIES:
+            def _newest_ts(entry_dict: dict) -> float:
+                # 각 캐시 키 값은 {field_name: {verified_at, ...}} 형태
+                ts_values = [
+                    v.get("verified_at", 0.0)
+                    for v in entry_dict.values()
+                    if isinstance(v, dict)
+                ]
+                return max(ts_values, default=0.0)
+
+            sorted_keys = sorted(cache, key=lambda k: _newest_ts(cache[k]))
+            for k in sorted_keys[: len(cache) - _XPATH_CACHE_MAX_ENTRIES]:
+                del cache[k]
+
         _XPATH_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_XPATH_CACHE_PATH, "w", encoding="utf-8") as f:
+        tmp = _XPATH_CACHE_PATH.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
-    except OSError as e:
+        os.replace(tmp, _XPATH_CACHE_PATH)  # 원자적 교체 (Windows 포함)
+    except (OSError, ValueError) as e:
         logger.debug("xpath cache save 실패 (무시): %s", e)
 
 # ---------------------------------------------------------------------------
@@ -362,7 +382,11 @@ def generate_action_sequence(
     from assets.snippets.html_preprocessor import preprocess_for_scraper
     from urllib.parse import urlparse
 
-    domain = urlparse(url).netloc
+    parsed = urlparse(url)
+    domain = parsed.netloc
+    # [B2] URL 경로 첫 세그먼트로 캐시 키 세분화 (같은 도메인의 다른 페이지 템플릿 구분)
+    path_prefix = parsed.path.split("/")[1] if parsed.path.count("/") >= 1 else ""
+    domain_cache_key = f"{domain}:{path_prefix}"
     fields = fields or PHARMA_FIELDS
 
     # HTML 전처리 (auto_scraper용)
@@ -383,64 +407,65 @@ def generate_action_sequence(
 
     seq = ActionSequence(url=url, domain=domain, page_title=title)
 
-    # 핀포인트: 도메인별 XPath 캐시 조회
-    xpath_cache = _load_xpath_cache()
-    domain_cache = xpath_cache.get(domain, {})
-    cache_hits = 0
-    cache_dirty = False
+    # [B3/B4] Lock 획득 후 캐시 read-modify-write 전체를 원자적으로 처리
+    with _XPATH_CACHE_LOCK:
+        xpath_cache = _load_xpath_cache()
+        domain_cache = xpath_cache.get(domain_cache_key, {})
+        cache_hits = 0
+        cache_dirty = False
 
-    # 각 필드에 대해 XPath 생성 (캐시 우선, 실패 시 LLM 폴백)
-    for field_def in fields:
-        fname = field_def["name"]
-        cached_entry = domain_cache.get(fname)
-        action: Optional[XPathAction] = None
+        # 각 필드에 대해 XPath 생성 (캐시 우선, 실패 시 LLM 폴백)
+        for field_def in fields:
+            fname = field_def["name"]
+            cached_entry = domain_cache.get(fname)
+            action: Optional[XPathAction] = None
 
-        # 1) 캐시된 XPath를 먼저 실제 HTML에 실행하여 검증
-        if (
-            cached_entry
-            and cached_entry.get("xpath")
-            and cached_entry.get("fail_count", 0) < _XPATH_CACHE_MAX_FAILS
-        ):
-            cached_xpath = cached_entry["xpath"]
-            values = _execute_xpath(tree, cached_xpath)
-            if values and field_def["validation"](values[0]):
-                action = XPathAction(
-                    field_name=fname,
-                    xpath=cached_xpath,
-                    sample_value=values[0],
-                    verified=True,
-                    attempts=0,  # LLM 호출 없음
-                )
-                cached_entry["success_count"] = int(cached_entry.get("success_count", 0)) + 1
-                cached_entry["fail_count"] = 0
-                cached_entry["verified_at"] = time.time()
-                cache_hits += 1
-                cache_dirty = True
-            else:
-                # 캐시 hit이지만 검증 실패 → fail_count 증가 (3회되면 다음번에 재생성)
-                cached_entry["fail_count"] = int(cached_entry.get("fail_count", 0)) + 1
-                cache_dirty = True
+            # 1) 캐시된 XPath를 먼저 실제 HTML에 실행하여 검증
+            if (
+                cached_entry
+                and cached_entry.get("xpath")
+                and cached_entry.get("fail_count", 0) < _XPATH_CACHE_MAX_FAILS
+            ):
+                cached_xpath = cached_entry["xpath"]
+                values = _execute_xpath(tree, cached_xpath)
+                if values and field_def["validation"](values[0]):
+                    action = XPathAction(
+                        field_name=fname,
+                        xpath=cached_xpath,
+                        sample_value=values[0],
+                        verified=True,
+                        attempts=0,  # LLM 호출 없음
+                    )
+                    cached_entry["success_count"] = int(cached_entry.get("success_count", 0)) + 1
+                    cached_entry["fail_count"] = 0
+                    cached_entry["verified_at"] = time.time()
+                    cache_hits += 1
+                    cache_dirty = True
+                else:
+                    # 캐시 hit이지만 검증 실패 → fail_count 증가 (3회되면 다음번에 재생성)
+                    cached_entry["fail_count"] = int(cached_entry.get("fail_count", 0)) + 1
+                    cache_dirty = True
 
-        # 2) 캐시 미스 또는 캐시 실패 → LLM으로 생성
-        if action is None:
-            action = generate_xpath_for_field(llm_client, clean_html, tree, field_def)
-            if action.verified and action.xpath:
-                domain_cache[fname] = {
-                    "xpath": action.xpath,
-                    "verified_at": time.time(),
-                    "success_count": 1,
-                    "fail_count": 0,
-                }
-                cache_dirty = True
+            # 2) 캐시 미스 또는 캐시 실패 → LLM으로 생성
+            if action is None:
+                action = generate_xpath_for_field(llm_client, clean_html, tree, field_def)
+                if action.verified and action.xpath:
+                    domain_cache[fname] = {
+                        "xpath": action.xpath,
+                        "verified_at": time.time(),
+                        "success_count": 1,
+                        "fail_count": 0,
+                    }
+                    cache_dirty = True
 
-        seq.actions.append(action)
+            seq.actions.append(action)
 
-    # 캐시 flush
-    if cache_dirty:
-        xpath_cache[domain] = domain_cache
-        _save_xpath_cache(xpath_cache)
-    if cache_hits:
-        logger.info("[%s] XPath 캐시 히트: %d/%d 필드", domain, cache_hits, len(fields))
+        # 캐시 flush
+        if cache_dirty:
+            xpath_cache[domain_cache_key] = domain_cache
+            _save_xpath_cache(xpath_cache)
+        if cache_hits:
+            logger.info("[%s] XPath 캐시 히트: %d/%d 필드", domain, cache_hits, len(fields))
 
     # 성공률 계산
     verified = [a for a in seq.actions if a.verified]

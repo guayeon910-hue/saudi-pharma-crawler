@@ -25,9 +25,15 @@ from supabase_state import AuditLog, MetricsCollector, SourceReputation
 
 logger = logging.getLogger("crawlers.sfda_api")
 
-# INN 정규화기: 모듈 로드 시 1회 초기화
-_inn_norm = INNNormalizer()
-_inn_norm.load_reference()
+# INN 정규화기: 모듈 로드 시 1회 초기화 (실패 시 None으로 폴백)
+try:
+    _inn_norm = INNNormalizer()
+    _inn_norm.load_reference()
+except Exception as _inn_load_err:
+    logger.warning(
+        f"INN reference load failed, INN normalization will be skipped: {_inn_load_err}"
+    )
+    _inn_norm = None
 
 
 def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
@@ -41,7 +47,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
       - delay: 요청 간격 초 (기본 0.5)
     """
     inserted = 0
-    updated = 0
+    updated = 0  # NOTE: Supabase upsert does not distinguish insert vs update; always 0.
     skipped = 0
 
     mode = cfg.get("mode", "search")
@@ -97,12 +103,13 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
             for item in items:
                 record = map_web_to_schema(item, source_url=source_url)
                 record = normalize_record(record)            # 함량/제형/가격 정규화
-                record = _inn_norm.normalize_record(record)   # WHO INN 매칭
+                if _inn_norm is not None:
+                    record = _inn_norm.normalize_record(record)   # WHO INN 매칭
                 record = flag_record(record, existing_prices) # K 통계량 이상치 검사
 
                 # ── 소스 신뢰도 보정 ──
                 bonus = reputation.confidence_bonus("sfda_web")
-                record["confidence"] = min(1.0, max(0.0, (record.get("confidence") or 0.92) + bonus))
+                record["confidence"] = min(0.99, max(0.0, (record.get("confidence") or 0.92) + bonus))
 
                 if not dry_run:
                     try:

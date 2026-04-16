@@ -1,943 +1,455 @@
 <!DOCTYPE html>
+<!--
+  UPharma Export AI — 사우디아라비아 진출 적합성 분석 대시보드
+  ════════════════════════════════════════════════════════
+  파일 구조:
+    index.html  ← 이 파일 (HTML 구조)
+    style.css   ← 디자인 시스템 (네이비/오렌지 테마, border 없음)
+    app.js      ← 전체 동작 로직
+
+  탭 구조:
+    main  — 메인 프리뷰  (관세+환율 카드 | To-Do | 뉴스)
+    p1    — 1공정 · 시장조사
+    p2    — 2공정 · 수출전략  (준비 중)
+    p3    — 3공정 · 바이어 발굴  (준비 중)
+    rep   — 보고서  (1공정 완료 시 자동 등록 · localStorage)
+
+  API (전부 내부 서버 엔드포인트 — 외부 API 키 불필요):
+    GET  /api/exchange              SAR/KRW 환율 (현재 하드코딩, 실시간 연동 시 yfinance/ECOS 옵션)
+    GET  /api/keys/status           Claude·Perplexity 키 설정 여부
+    POST /api/pipeline/{key}        단일 품목 파이프라인 (Claude 분석 사용)
+    GET  /api/pipeline/{key}/status 진행 상태
+    GET  /api/pipeline/{key}/result 분석·논문·PDF 결과
+    POST /api/pipeline/custom       신약 분석
+    GET  /api/report/download       PDF 다운로드
+    GET  /api/news                  사우디 시장 뉴스 (Supabase country=SA 쿼리, SerpAPI 미사용)
+
+  필요한 환경 변수 (.env):
+    SUPABASE_URL, SUPABASE_SERVICE_KEY   — DB 연결 (뉴스·크롤 데이터)
+    CLAUDE_API_KEY                       — 파이프라인 분석용
+    PERPLEXITY_API_KEY                   — 논문 검색 (선택, 없으면 생략)
+-->
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Saudi Pharma Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<style>
-:root {
-  --primary: #1a73e8;
-  --success: #0d9488;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --bg: #f8fafc;
-  --card: #ffffff;
-  --text: #1e293b;
-  --muted: #64748b;
-  --border: #e2e8f0;
-  --purple: #7c3aed;
-  --dark-bg: #0f172a;
-  --dark-surface: #1e293b;
-  --dark-surface2: #334155;
-  --dark-text: #e2e8f0;
-  --dark-text2: #94a3b8;
-  --accent: #38bdf8;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
-
-header{background:linear-gradient(135deg,#1a56db,#1a73e8);color:#fff;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.15)}
-.header-inner{max-width:1200px;margin:0 auto;padding:16px 20px}
-header h1{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
-header .subtitle{font-size:.8rem;opacity:.75;margin-top:2px}
-
-.container{max-width:1200px;margin:0 auto;padding:20px 16px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.card h2{font-size:.95rem;font-weight:600;margin-bottom:12px;color:var(--primary);display:flex;align-items:center;gap:8px}
-.section-title{font-size:1.05rem;font-weight:700;margin:28px 0 12px;color:var(--text);padding-bottom:8px;border-bottom:2px solid var(--primary)}
-
-/* Macro */
-.macro-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
-.macro-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
-.macro-card .mc-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
-.macro-card .mc-value{font-size:1.6rem;font-weight:700;line-height:1.1}
-.macro-card .mc-sub{font-size:.7rem;color:var(--muted);margin-top:4px}
-.mc-blue{color:var(--primary)}.mc-green{color:var(--success)}.mc-yellow{color:var(--warning)}.mc-red{color:var(--danger)}.mc-purple{color:var(--purple)}
-
-/* Analysis Card */
-.analysis-section{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end}
-.product-select{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:.9rem;background:#fff;cursor:pointer}
-.product-select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(26,115,232,.12)}
-.btn{padding:10px 24px;border:none;border-radius:8px;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn-primary{background:var(--primary);color:#fff}
-.btn-primary:hover:not(:disabled){background:#1557b0}
-.btn-purple{background:var(--purple);color:#fff}
-.btn-purple:hover:not(:disabled){background:#6d28d9}
-
-/* Progress */
-.progress-steps{display:flex;align-items:center;gap:0;margin:16px 0}
-.pstep{flex:1;text-align:center}.pstep .circle{width:36px;height:36px;border-radius:50%;background:var(--border);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;margin-bottom:4px;transition:all .3s}
-.pstep .plabel{font-size:.72rem;color:var(--muted);transition:color .3s}
-.pstep.active .circle{background:var(--primary);color:#fff;box-shadow:0 0 0 4px rgba(26,115,232,.2)}.pstep.active .plabel{color:var(--primary);font-weight:600}
-.pstep.done .circle{background:var(--success);color:#fff}.pstep.done .plabel{color:var(--success)}
-.pstep.error .circle{background:var(--danger);color:#fff}.pstep.error .plabel{color:var(--danger)}
-.pconn{flex:0 0 30px;height:3px;background:var(--border);margin-bottom:22px;transition:background .3s}.pconn.done{background:var(--success)}
-
-/* Result Cards */
-.result-card,.papers-card,.report-card{display:none}
-.verdict-badge{display:inline-block;padding:6px 18px;border-radius:20px;font-weight:700;font-size:1rem}
-.verdict-적합,.verdict-possible{background:#d1fae5;color:#065f46}
-.verdict-조건부,.verdict-conditional{background:#fef3c7;color:#92400e}
-.verdict-부적합,.verdict-impossible{background:#fee2e2;color:#991b1b}
-.verdict-error{background:#f1f5f9;color:var(--muted)}
-.factor-chip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.75rem;background:#eff6ff;color:#1d4ed8;margin:2px;font-weight:500}
-
-/* Price */
-.price-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
-.price-table th{text-align:left;padding:8px 10px;background:#f8fafc;border-bottom:2px solid var(--border);font-size:.72rem;text-transform:uppercase;color:var(--muted)}
-.price-table td{padding:7px 10px;border-bottom:1px solid var(--border)}
-.price-table tr:hover td{background:#f8fafc}
-.price-highlight{font-weight:700;color:var(--primary)}
-.price-na{color:var(--muted);font-style:italic}
-
-/* AI Sources */
-.ai-source-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:.85rem}
-.ai-source-item:last-child{border-bottom:none}
-.ai-source-url{font-weight:500;color:var(--primary);text-decoration:none;word-break:break-all}
-.ai-source-url:hover{text-decoration:underline}
-.relevance-bar{display:inline-block;width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:4px}
-.relevance-bar-fill{height:100%;border-radius:3px}
-.price-badge{display:inline-block;font-size:.7rem;padding:2px 6px;border-radius:8px;font-weight:500}
-.price-yes{background:#d1fae5;color:#065f46}.price-no{background:#f1f5f9;color:var(--muted)}
-
-/* Site Panel */
-.sites-toggle{cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}
-.sites-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
-.site-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;font-size:.73rem}
-.site-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-bottom:4px}
-.site-dot.pending{background:#d1d5db}.site-dot.running{background:var(--warning);animation:pulse 1s infinite}.site-dot.done{background:var(--success)}.site-dot.error{background:var(--danger)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.site-name{font-weight:600}.site-msg{color:var(--muted);font-size:.68rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.site-cat{font-size:.6rem;padding:1px 5px;border-radius:6px;display:inline-block;margin-bottom:4px}
-.site-cat-public{background:#dbeafe;color:#1d4ed8}.site-cat-private{background:#fef3c7;color:#92400e}
-
-/* Log Panel */
-.log-panel{background:#1e293b;border-radius:10px;overflow:hidden;margin-bottom:16px}
-.log-header{padding:10px 16px;background:#0f172a;color:#94a3b8;font-size:.8rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none}
-.log-body{max-height:280px;overflow-y:auto;padding:8px 16px;display:none}.log-body.open{display:block}
-.log-line{font-family:'Cascadia Code','Fira Code',monospace;font-size:.73rem;color:#e2e8f0;padding:2px 0;border-bottom:1px solid rgba(51,65,85,.3)}
-.log-line .log-ts{color:#64748b;margin-right:8px}.log-line .log-phase{color:#38bdf8;margin-right:6px;font-weight:600}.log-line.error{color:#f87171}
-
-/* Dark Analytics Section */
-.analytics{background:var(--dark-bg);color:var(--dark-text);border-radius:12px;padding:24px;margin-bottom:16px}
-.analytics h2{color:var(--accent);font-size:1rem;margin-bottom:16px}
-.a-grid{display:grid;gap:16px;margin-bottom:16px}
-.a-grid-4{grid-template-columns:repeat(4,1fr)}.a-grid-3{grid-template-columns:repeat(3,1fr)}.a-grid-2{grid-template-columns:repeat(2,1fr)}
-.a-card{background:var(--dark-surface);border-radius:12px;padding:20px;border:1px solid var(--dark-surface2)}
-.a-card h3{font-size:12px;color:var(--dark-text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
-.a-stat{font-size:32px;font-weight:700;line-height:1.1}
-.a-label{font-size:12px;color:var(--dark-text2);margin-top:4px}
-.a-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
-.a-badge-green{background:#166534;color:#4ade80}.a-badge-red{background:#7f1d1d;color:#f87171}.a-badge-blue{background:#1e3a5f;color:#38bdf8}
-.chart-container{position:relative;width:100%}.h200{height:200px}.h260{height:260px}
-.a-table{width:100%;border-collapse:collapse;font-size:12px}
-.a-table th{text-align:left;padding:8px 6px;color:var(--dark-text2);border-bottom:1px solid var(--dark-surface2);font-weight:600;font-size:11px;text-transform:uppercase}
-.a-table td{padding:7px 6px;border-bottom:1px solid rgba(51,65,85,.5)}
-.a-table tr:hover td{background:rgba(56,189,248,.05)}
-.tag{display:inline-block;background:var(--dark-surface2);padding:1px 6px;border-radius:3px;font-size:10px;margin-right:4px}
-.antibot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
-.ab-card{background:var(--dark-surface2);border-radius:8px;padding:12px;text-align:center}
-.ab-card .ab-type{font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px}
-.ab-card .ab-action{font-size:10px;color:var(--dark-text2)}.ab-card .ab-mult{font-size:20px;font-weight:700;margin:6px 0}
-.pipeline-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:20px}
-.pipeline-step{background:var(--dark-surface);border:1px solid var(--dark-surface2);border-radius:8px;padding:10px 16px;font-size:12px;text-align:center}
-.pipeline-step .step-name{font-weight:600;color:var(--accent)}.pipeline-step .step-desc{color:var(--dark-text2);font-size:10px;margin-top:2px}
-.pipeline-arrow{color:var(--dark-text2);font-size:18px}
-
-/* Outlier (light theme) */
-.outlier-summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px}
-.os-box{text-align:center;padding:12px;border-radius:8px;background:#f8fafc}
-.os-box .os-val{font-size:1.4rem;font-weight:700}.os-box .os-label{font-size:.7rem;color:var(--muted)}
-.donut-wrap{width:140px;height:140px;margin:0 auto 16px}
-.conf-bars{display:flex;gap:4px;align-items:end;height:60px;margin:12px 0}
-.conf-bar{flex:1;min-height:4px;position:relative}.conf-bar-fill{position:absolute;bottom:0;width:100%;border-radius:3px 3px 0 0}
-.conf-label{text-align:center;font-size:.6rem;color:var(--muted);margin-top:2px}
-.outlier-table{width:100%;border-collapse:collapse;font-size:.8rem}
-.outlier-table th{text-align:left;padding:8px;background:#f1f5f9;border-bottom:2px solid var(--border);font-size:.7rem;text-transform:uppercase;color:var(--muted)}
-.outlier-table td{padding:7px 8px;border-bottom:1px solid var(--border)}.outlier-table tr:hover td{background:#f8fafc}
-
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-@media(max-width:768px){
-  .macro-grid,.a-grid-4{grid-template-columns:repeat(2,1fr)}
-  .sites-grid{grid-template-columns:repeat(2,1fr)}
-  .analysis-section{grid-template-columns:1fr}
-  .a-grid-3,.a-grid-2{grid-template-columns:1fr}
-  .antibot-grid{grid-template-columns:repeat(2,1fr)}
-  .outlier-summary{grid-template-columns:1fr}
-}
-</style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
+  <link rel="stylesheet" href="/static/style.css?v=4"/>
 </head>
 <body>
+<div class="app">
 
-<header>
-  <div class="header-inner">
-    <h1>Saudi Pharma Crawler</h1>
-    <div class="subtitle">사우디 의약품 시장 진출 적합성 분석 대시보드</div>
+<!-- ════════════════════════════════════════════════════════
+  상단 바: 로고 + 브랜드명 + API 키 배지 + 사우디 국기 pill
+════════════════════════════════════════════════════════ -->
+<header class="topbar">
+  <!-- 좌측: 로고 + 제품명 -->
+  <div class="brand">
+    <img src="/static/images/logo.png" class="brand-logo" alt="한국유나이티드제약 로고">
+    <div class="brand-text">
+      <h1>한국유나이티드제약(주) 해외 영업·마케팅 대시보드</h1>
+    </div>
+  </div>
+
+  <!-- 우측: API 키 배지 + 국가 pill -->
+  <div class="topbar-r">
+    <!-- API 키 상태 배지 — app.js §6 loadKeyStatus() 가 채움 -->
+    <div class="key-status">
+      <div class="key-badge inactive" id="key-claude" title="Claude API 키 확인 중">
+        <div class="key-badge-dot"></div>
+        <span>Claude</span>
+      </div>
+      <div class="key-badge inactive" id="key-perplexity" title="Perplexity API 키 확인 중">
+        <div class="key-badge-dot"></div>
+        <span>Perplexity</span>
+      </div>
+    </div>
+    <!-- 국가 pill -->
+    <div class="pill">
+      <span class="flag-emoji">🇸🇦</span>
+      <span>Saudi Arabia</span>
+    </div>
   </div>
 </header>
 
-<div class="container">
+<main class="main">
 
-  <!-- Macro Cards -->
-  <div class="macro-grid" id="macroGrid">
-    <div class="macro-card"><div class="mc-label">총 수집 제품</div><div class="mc-value mc-blue" id="mcProducts">-</div><div class="mc-sub" id="mcProductsSub">&nbsp;</div></div>
-    <div class="macro-card"><div class="mc-label">데이터 소스</div><div class="mc-value mc-green" id="mcSources">-</div><div class="mc-sub">GitHub Actions 크롤링</div></div>
-    <div class="macro-card"><div class="mc-label">평균 가격</div><div class="mc-value mc-yellow" id="mcAvgPrice">-</div><div class="mc-sub" id="mcAvgPriceSub">SAR</div></div>
-    <div class="macro-card"><div class="mc-label">이상치 비율</div><div class="mc-value mc-red" id="mcOutlier">-</div><div class="mc-sub" id="mcOutlierSub">&nbsp;</div></div>
-  </div>
+  <!-- ════ 내비게이션 탭 ════ -->
+  <nav class="nav">
+    <a class="tab on" onclick="goTab('main',this)">메인 프리뷰</a>
+    <a class="tab"    onclick="goTab('p1',this)">1공정 · 시장조사</a>
+    <a class="tab"    onclick="goTab('p2',this)">2공정 · 수출전략</a>
+    <a class="tab"    onclick="goTab('p3',this)">3공정 · 바이어 발굴</a>
+    <a class="tab"    onclick="goTab('rep',this)">보고서</a>
+  </nav>
 
-  <!-- Analysis Card -->
-  <div class="card">
-    <h2>진출 적합 분석</h2>
-    <div class="analysis-section">
-      <select class="product-select" id="productSelect"><option value="">품목을 선택하세요</option></select>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="btnFull" disabled onclick="runFullPipeline()" style="background:linear-gradient(135deg,#059669,#0d9488);padding:10px 28px">전체 실행 (크롤링+분석)</button>
-        <button class="btn btn-primary" id="btnRun" disabled onclick="runPipeline()">분석만</button>
-        <button class="btn btn-purple" id="btnPplx" onclick="runPerplexity()" title="Perplexity 시장 분석">Perplexity</button>
+  <!-- ════════════════════════════════════════════════════════
+    메인 프리뷰
+    ▸ g3: [관세+환율 카드] | [To-Do 카드] | [뉴스 카드]
+  ════════════════════════════════════════════════════════ -->
+  <div id="main" class="page on">
+    <div class="g3">
+
+      <!-- ── 관세 + 환율 병합 카드 ──────────────────────────────── -->
+      <article class="card tariff-card">
+        <div class="sec">
+          <div>
+            <h3>관세 · 환율 현황</h3>
+            <p>사우디아라비아 수출 기준</p>
+          </div>
+        </div>
+
+        <!-- 관세 정보 (사우디 수출 기준 — 정적) -->
+        <div class="irow">
+          <div class="irow-row">
+            <div>
+              <div class="tit">HS 3004 — 완제의약품 (세레테롤, 로수메그 등)</div>
+              <div class="sub">GCC 공통관세 0% · 한-GCC FTA 미체결, MFN 적용</div>
+            </div>
+            <span class="tariff-rate green">0%</span>
+          </div>
+        </div>
+        <div class="irow">
+          <div class="irow-row">
+            <div>
+              <div class="tit">HS 3006 — 조영제 (Gadvoa Inj., Gadobutrol)</div>
+              <div class="sub">GCC 공통관세 0% · VAT 15% 별도 (현지 판매 시)</div>
+            </div>
+            <span class="tariff-rate green">0%</span>
+          </div>
+        </div>
+        <div class="irow">
+          <div class="irow-row">
+            <div>
+              <div class="tit">사우디 통관 핵심 요건</div>
+              <div class="sub">SFDA 등록 필수 · 아랍어 라벨링 의무 · Halal 성분 준수 · 원산지증명서 첨부</div>
+            </div>
+            <span class="tariff-rate navy">주의</span>
+          </div>
+        </div>
+
+        <!-- 환율 섹션 — app.js §3 loadExchange() 가 채움 -->
+        <div class="exchange-section">
+          <div id="exchange-content">
+            <div class="exchange-label">KRW / SAR</div>
+            <div id="exchange-main-rate" class="exchange-main-rate">
+              —<span class="exchange-unit">원</span>
+            </div>
+            <div id="exchange-sub" class="exchange-sub-grid"></div>
+            <div id="exchange-source" class="exchange-source">조회 중…</div>
+          </div>
+          <button class="btn-refresh" id="btn-exchange-refresh" onclick="loadExchange()">
+            ↺ 환율 새로고침
+          </button>
+        </div>
+      </article>
+
+      <!-- ── 공정 진행 체크리스트 카드 ─────────────────────────────── -->
+      <article class="card">
+        <div class="sec">
+          <div>
+            <h3>공정 진행 체크리스트</h3>
+          </div>
+        </div>
+
+        <!-- 고정 항목 (자동 체크 가능) — app.js §4 initTodo() / markTodoDone() 가 제어 -->
+        <div class="todo-list" id="todo-fixed-list">
+          <div class="todo-item" id="todo-p1" onclick="toggleTodo('p1')">
+            <div class="todo-check" id="todo-check-p1"></div>
+            <span class="todo-label">1공정 · 시장조사 분석</span>
+            <span class="todo-auto-badge">자동</span>
+          </div>
+          <div class="todo-item" id="todo-rep" onclick="toggleTodo('rep')">
+            <div class="todo-check" id="todo-check-rep"></div>
+            <span class="todo-label">보고서 생성</span>
+            <span class="todo-auto-badge">자동</span>
+          </div>
+          <div class="todo-item" id="todo-p2" onclick="toggleTodo('p2')">
+            <div class="todo-check" id="todo-check-p2"></div>
+            <span class="todo-label">2공정 · 수출전략 수립</span>
+            <span class="todo-auto-badge">예정</span>
+          </div>
+          <div class="todo-item" id="todo-p3" onclick="toggleTodo('p3')">
+            <div class="todo-check" id="todo-check-p3"></div>
+            <span class="todo-label">3공정 · 바이어 발굴</span>
+            <span class="todo-auto-badge">예정</span>
+          </div>
+        </div>
+
+        <!-- 사용자 추가 항목 — app.js §4 _renderCustomTodos() 가 채움 -->
+        <div id="todo-custom-list"></div>
+
+        <!-- 항목 추가 입력 -->
+        <div class="todo-add-row">
+          <input
+            class="todo-input"
+            id="todo-input"
+            type="text"
+            placeholder="항목 추가 후 Enter…"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addTodoItem(event)}"
+          />
+          <button class="btn-todo-add" onclick="addTodoItem()">+ 추가</button>
+        </div>
+      </article>
+
+      <!-- ── 시장 신호 · 뉴스 카드 (DB/SerpAPI 동적) ──────────────────── -->
+      <article class="card">
+        <div class="sec">
+          <div>
+            <h3>시장 신호 · 뉴스</h3>
+            <p>사우디 의약품 시장 주요 동향 · 실시간</p>
+          </div>
+          <!-- 새로고침 버튼 — app.js §11 loadNews() 호출 -->
+          <button class="btn-refresh" id="btn-news-refresh" onclick="loadNews()" style="margin-top:0;">
+            ↺ 새로고침
+          </button>
+        </div>
+        <!-- app.js §11 loadNews() 가 채움 -->
+        <div id="news-list">
+          <div class="irow news-placeholder">뉴스 로드 중…</div>
+        </div>
+      </article>
+
+    </div><!-- /g3 -->
+  </div><!-- /#main -->
+
+  <!-- ════════════════════════════════════════════════════════
+    1공정 · 시장조사
+    ▸ 품목 선택 카드 + 진행 단계
+    ▸ 신약 분석 폼 카드
+    ▸ 분석 결과 카드 (신호등 · 근거 · 전략)
+    ▸ 논문 카드
+    ▸ PDF 보고서 카드
+  ════════════════════════════════════════════════════════ -->
+  <div id="p1" class="page">
+
+    <!-- 품목 선택 카드 -->
+    <div class="selector-card">
+      <div class="selector-label">품목 선택 후 사우디아라비아 진출 적합 분석 실행</div>
+      <div class="selector-row">
+        <!--
+          value = drug_registry.json 의 id 필드와 1:1 매칭
+          (POST /api/pipeline/{product_key} 로 그대로 전달됨)
+        -->
+        <select id="product-select">
+          <option value="sereterol-activair">Sereterol Activair — Fluticasone / Salmeterol</option>
+          <option value="omethyl-cutielet">Omethyl Cutielet — Omega-3 EE 2g</option>
+          <option value="hydrine">하이드린 캡슐 — Hydroxyurea 500mg</option>
+          <option value="gadvoa-inj">Gadvoa Inj. — Gadobutrol 604mg</option>
+          <option value="rosumeg-combigel">Rosumeg Combigel — Rosuvastatin + Omega-3</option>
+          <option value="atmeg-combigel">Atmeg Combigel — Atorvastatin + Omega-3</option>
+          <option value="ciloduo">Ciloduo — Cilostazol + Rosuvastatin</option>
+          <option value="gastiin-cr">Gastiin CR — Mosapride (서방정)</option>
+        </select>
+        <button class="btn-analyze" id="btn-analyze" onclick="runPipeline()">
+          <span id="btn-icon">▶</span> 진출 적합 분석
+        </button>
+      </div>
+
+      <!--
+        진행 단계 표시
+        step 순서: db_load → analyze → refs → report
+        ID 규칙: prog-{step}
+      -->
+      <div class="progress-row" id="progress-row">
+        <div class="prog-step" id="prog-db_load">
+          <div class="prog-dot">1</div>
+          <div class="prog-label">DB 조회</div>
+        </div>
+        <div class="prog-step" id="prog-analyze">
+          <div class="prog-dot">2</div>
+          <div class="prog-label">Claude 분석</div>
+        </div>
+        <div class="prog-step" id="prog-refs">
+          <div class="prog-dot">3</div>
+          <div class="prog-label">논문 검색</div>
+        </div>
+        <div class="prog-step" id="prog-report">
+          <div class="prog-dot">4</div>
+          <div class="prog-label">PDF 생성</div>
+        </div>
       </div>
     </div>
-    <div class="progress-steps" id="progressBar" style="display:none">
-      <div class="pstep" id="ps-crawl"><div class="circle">1</div><div class="plabel">Actions 크롤링</div></div>
-      <div class="pconn" id="pc-1"></div>
-      <div class="pstep" id="ps-analyze"><div class="circle">2</div><div class="plabel">Claude 분석</div></div>
-      <div class="pconn" id="pc-2"></div>
-      <div class="pstep" id="ps-refs"><div class="circle">3</div><div class="plabel">논문 검색</div></div>
-    </div>
-  </div>
 
-  <!-- Result Cards -->
-  <div class="card result-card" id="resultCard"><h2>분석 결과</h2><div id="resultContent"></div></div>
-  <div class="card result-card" id="priceCard"><h2>가격 비교 / 예상치</h2><div id="priceContent"></div></div>
-
-  <!-- AI Sources Card -->
-  <div class="card result-card" id="aiSourcesCard">
-    <h2>AI 발견 소스</h2>
-    <div id="aiSourcesCount" style="font-size:.85rem;color:var(--muted);margin-bottom:10px"></div>
-    <div id="aiSourcesContent"></div>
-  </div>
-
-  <!-- Perplexity Insights -->
-  <div class="card result-card" id="pplxCard">
-    <h2>시장 인사이트 (Perplexity)</h2>
-    <div id="pplxContent"></div>
-  </div>
-
-  <div class="card papers-card" id="papersCard"><h2>참고문헌 / 논문</h2><div id="papersContent"></div></div>
-  <div class="card report-card" id="reportCard">
-    <h2>보고서</h2>
-    <div id="reportContent">
-      <button class="btn btn-primary" id="btnReport" onclick="generateReport()" style="padding:12px 28px">보고서 생성</button>
-      <div id="reportResult" style="margin-top:12px"></div>
-    </div>
-  </div>
-
-  <!-- Site Status -->
-  <div class="card">
-    <div class="sites-toggle" onclick="toggleSites()">
-      <h2 style="margin:0">크롤링 사이트 상태</h2>
-      <span id="sitesToggleIcon" style="font-size:1.2rem;color:var(--muted)">&#9660;</span>
-    </div>
-    <div id="sitesBody" style="display:none"><div class="sites-grid" id="sitesGrid"></div></div>
-  </div>
-
-  <!-- Log -->
-  <div class="log-panel">
-    <div class="log-header" onclick="toggleLog()">
-      <span>실시간 로그 <span id="logCount" style="opacity:.6"></span></span>
-      <span id="logToggle">&#9660;</span>
-    </div>
-    <div class="log-body open" id="logBody"></div>
-  </div>
-
-  <!-- Outlier Card (uses dashboard_data.json) -->
-  <div class="card" id="outlierCard">
-    <h2>이상치 검증 (SFDA 데이터)</h2>
-    <div class="outlier-summary">
-      <div class="os-box"><div class="os-val mc-green" id="olNormal">-</div><div class="os-label">정상</div></div>
-      <div class="os-box"><div class="os-val mc-red" id="olOutlier">-</div><div class="os-label">이상치</div></div>
-      <div class="os-box"><div class="os-val mc-blue" id="olTotal">-</div><div class="os-label">전체 레코드</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:140px 1fr;gap:20px;align-items:center;margin-bottom:16px">
-      <div class="donut-wrap">
-        <svg viewBox="0 0 42 42" width="140" height="140">
-          <circle cx="21" cy="21" r="15.9" fill="none" stroke="#e2e8f0" stroke-width="4"/>
-          <circle id="donutNormal" cx="21" cy="21" r="15.9" fill="none" stroke="#0d9488" stroke-width="4" stroke-dasharray="0 100" stroke-dashoffset="25" transform="rotate(-90 21 21)"/>
-          <circle id="donutOutlier" cx="21" cy="21" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="0 100" stroke-dashoffset="25" transform="rotate(-90 21 21)"/>
-          <text x="21" y="22" text-anchor="middle" font-size="6" font-weight="700" fill="#1e293b" id="donutLabel">-</text>
-        </svg>
+    <!-- 신약 분석 카드 -->
+    <div class="selector-card">
+      <div class="selector-label">신약 분석 (직접 입력)</div>
+      <div class="custom-form">
+        <input type="text" id="custom-trade-name" class="custom-input" placeholder="약품명 (예: Nexavar)">
+        <input type="text" id="custom-inn"        class="custom-input" placeholder="성분명 (예: sorafenib)">
+        <input type="text" id="custom-dosage"     class="custom-input" placeholder="제형 (예: 200mg tablet)">
+        <button class="btn-analyze" id="btn-custom" onclick="runCustomPipeline()">
+          <span id="custom-icon">▶</span> 신약 분석
+        </button>
       </div>
-      <div>
-        <div style="font-size:.8rem;color:var(--muted);margin-bottom:6px">신뢰도 분포</div>
-        <div class="conf-bars" id="confBars"></div>
-        <div style="display:flex;gap:4px" id="confLabels"></div>
+      <div class="progress-row" id="custom-progress-row">
+        <div class="prog-step" id="cprog-analyze">
+          <div class="prog-dot">1</div>
+          <div class="prog-label">Claude 분석</div>
+        </div>
+        <div class="prog-step" id="cprog-refs">
+          <div class="prog-dot">2</div>
+          <div class="prog-label">논문 검색</div>
+        </div>
+        <div class="prog-step" id="cprog-report">
+          <div class="prog-dot">3</div>
+          <div class="prog-label">PDF 생성</div>
+        </div>
       </div>
     </div>
-    <table class="outlier-table">
-      <thead><tr><th>Trade Name</th><th>Price (SAR)</th><th>Confidence</th><th>INN</th><th>Form</th><th>Status</th></tr></thead>
-      <tbody id="outlierTbody"></tbody>
-    </table>
+
+    <!-- 분석 결과 카드 — app.js §10 renderResult() 가 채우고 표시 -->
+    <div class="result-card" id="result-card">
+      <div class="card-title"><div class="card-title-dot"></div> 수출 적합성 분석 결과</div>
+
+      <!-- S1: 제품 식별 -->
+      <div class="rs-block">
+        <div class="rs-block-label">제품 식별</div>
+        <div class="rs-product-row">
+          <div class="verdict-name" id="verdict-name">—</div>
+          <div class="verdict-inn"  id="verdict-inn">—</div>
+        </div>
+      </div>
+
+      <!-- S2: 핵심 판정 (신호등) -->
+      <div class="rs-block">
+        <div class="rs-block-label">핵심 판정</div>
+        <div class="rs-verdict-wrap">
+          <div class="traffic-light">
+            <div class="tl-lamp tl-red"    id="tl-red"></div>
+            <div class="tl-lamp tl-yellow" id="tl-yellow"></div>
+            <div class="tl-lamp tl-green"  id="tl-green"></div>
+          </div>
+          <span class="verdict-badge v-none" id="verdict-badge">—</span>
+        </div>
+      </div>
+
+      <!-- S3: 두괄식 판정 근거 -->
+      <div class="rs-block">
+        <div class="rs-block-label">두괄식 판정 근거</div>
+        <div class="basis-grid">
+          <div class="basis-item">
+            <div class="basis-label">시장 / 의료</div>
+            <div class="basis-value" id="basis-market-medical">—</div>
+          </div>
+          <div class="basis-item">
+            <div class="basis-label">규제 (SFDA)</div>
+            <div class="basis-value" id="basis-regulatory">—</div>
+          </div>
+          <div class="basis-item">
+            <div class="basis-label">무역</div>
+            <div class="basis-value" id="basis-trade">—</div>
+          </div>
+          <div class="basis-item">
+            <div class="basis-label">참고 가격 (SAR)</div>
+            <div class="basis-value pbs-price-block" id="basis-pbs-line">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- S4: 시장 진출 전략 -->
+      <div class="rs-block">
+        <div class="rs-block-label">시장 진출 전략</div>
+        <div class="rs-strategy-grid">
+          <div class="rs-strategy-item">
+            <div class="rs-strategy-sub">진입 채널 권고</div>
+            <span class="entry-pathway" id="entry-pathway"></span>
+          </div>
+          <div class="rs-strategy-item">
+            <div class="rs-strategy-sub">가격 포지셔닝 (SAR)</div>
+            <div class="basis-value pbs-price-block" id="price-positioning-pbs">—</div>
+          </div>
+          <div class="rs-strategy-item">
+            <div class="rs-strategy-sub">리스크 / 조건</div>
+            <div class="basis-value" id="risks-conditions">—</div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-reanalyze" id="btn-reanalyze" onclick="runPipeline()">↺ 재분석</button>
+    </div>
+
+    <!-- 논문 카드 — refs 1건 이상일 때만 표시 -->
+    <div class="papers-card" id="papers-card">
+      <div class="card-title"><div class="card-title-dot"></div> Perplexity 추천 논문</div>
+      <div id="papers-list"></div>
+    </div>
+
+    <!-- PDF 보고서 카드 -->
+    <div class="report-card" id="report-card">
+      <div class="card-title"><div class="card-title-dot"></div> PDF 보고서</div>
+
+      <!-- 생성 중 -->
+      <div id="report-state-loading" style="display:none; align-items:center; gap:8px;">
+        <span class="report-loading-spinner"></span>
+        <span style="font-size:13px; color:var(--muted)">PDF 생성 중…</span>
+      </div>
+
+      <!-- 생성 완료 -->
+      <div id="report-state-ok" style="display:none">
+        <a class="btn-download" href="/api/report/download" target="_blank">
+          📄 PDF 보고서 다운로드
+        </a>
+        <p class="report-state">사우디아라비아 1공정 시장조사 보고서</p>
+      </div>
+
+      <!-- 생성 실패 -->
+      <div id="report-state-error" style="display:none">
+        <p class="report-state" style="color:var(--red)">PDF 생성 실패.</p>
+      </div>
+    </div>
+
+  </div><!-- /#p1 -->
+
+  <!-- ════════════════════════════════════════════════════════
+    2공정 · 수출전략  (준비 중)
+  ════════════════════════════════════════════════════════ -->
+  <div id="p2" class="page">
+    <div class="empty-page">
+      <div class="ep-icon">🚧</div>
+      <div class="ep-msg">2공정 · 수출전략은 준비 중입니다</div>
+      <div class="ep-sub">추후 업데이트 예정</div>
+    </div>
   </div>
 
-  <!-- ═══════════ Data Analytics (from dashboard.html) ═══════════ -->
-  <div class="section-title">Data Analytics</div>
-  <div class="analytics" id="analyticsSection">
-    <div class="pipeline-flow" id="pipelineFlow"></div>
-    <div class="a-grid a-grid-4" id="kpiCards"></div>
-    <div style="font-size:14px;font-weight:600;margin:20px 0 12px;color:var(--dark-text)">Pipeline Performance</div>
-    <div class="a-grid a-grid-3">
-      <div class="a-card"><h3>Price Distribution</h3><div class="chart-container h260"><canvas id="chartPriceDist"></canvas></div></div>
-      <div class="a-card"><h3>Page Fetch Time</h3><div class="chart-container h260"><canvas id="chartPageTime"></canvas></div></div>
-      <div class="a-card"><h3>Source Reputation (EMA)</h3><div class="chart-container h260"><canvas id="chartReputation"></canvas></div></div>
+  <!-- ════════════════════════════════════════════════════════
+    3공정 · 바이어 발굴  (준비 중)
+  ════════════════════════════════════════════════════════ -->
+  <div id="p3" class="page">
+    <div class="empty-page">
+      <div class="ep-icon">🚧</div>
+      <div class="ep-msg">3공정 · 바이어 발굴은 준비 중입니다</div>
+      <div class="ep-sub">추후 업데이트 예정</div>
     </div>
-    <div class="a-grid a-grid-2">
-      <div class="a-card"><h3>Confidence Distribution</h3><div class="chart-container h260"><canvas id="chartConfidence"></canvas></div></div>
-      <div class="a-card"><h3>Outlier Breakdown</h3><div class="chart-container h260"><canvas id="chartOutlierBreakdown"></canvas></div></div>
-    </div>
-    <div style="font-size:14px;font-weight:600;margin:20px 0 12px;color:var(--dark-text)">Anti-bot Defense Layer</div>
-    <div class="antibot-grid" id="antibotGrid"></div>
-    <div style="font-size:14px;font-weight:600;margin:20px 0 12px;color:var(--dark-text)">Records Detail</div>
-    <div class="a-card" style="overflow-x:auto">
-      <table class="a-table" id="recordsTable"><thead><tr><th>Product ID</th><th>Trade Name</th><th>Price (SAR)</th><th>Confidence</th><th>INN</th><th>Form</th><th>Status</th><th>Anomaly</th></tr></thead><tbody></tbody></table>
-    </div>
-    <div style="font-size:14px;font-weight:600;margin:20px 0 12px;color:var(--dark-text)">Metrics Summary</div>
-    <div class="a-grid" style="grid-template-columns:1fr 2fr">
-      <div class="a-card"><h3>Counters</h3><div id="metricsCounters"></div></div>
-      <div class="a-card"><h3>Audit Log Timeline</h3><div class="chart-container h200"><canvas id="chartAuditTimeline"></canvas></div></div>
-    </div>
-    <div style="text-align:center;color:var(--dark-text2);font-size:11px;margin-top:24px">Saudi Pharma Crawler v2.0 &mdash; SciSpace Enhanced &mdash; SFDA Public API</div>
   </div>
 
-</div>
+  <!-- ════════════════════════════════════════════════════════
+    보고서 탭
+    ▸ 1공정 분석 완료 시 renderResult() → _addReportEntry() → 자동 등록
+    ▸ localStorage 저장 (최대 30건)
+  ════════════════════════════════════════════════════════ -->
+  <div id="rep" class="page">
+    <article class="card">
+      <div class="sec">
+        <div>
+          <h3>생성된 보고서</h3>
+          <p>1공정 분석 완료 시 자동 등록 · PDF 다운로드 가능</p>
+        </div>
+        <span class="tag">Reports</span>
+      </div>
+      <!-- app.js §5 renderReportTab() 가 채움 -->
+      <div id="report-tab-list">
+        <div class="rep-empty">
+          아직 생성된 보고서가 없습니다.<br>
+          1공정 분석을 실행하면 여기에 자동으로 등록됩니다.
+        </div>
+      </div>
+    </article>
+  </div>
 
-<script>
-const API = '';
-let selectedKey = null;
-let pollTimer = null;
-let sseSource = null;
-let logCount = 0;
+</main>
+</div><!-- /.app -->
 
-// ═══════════════════════════════════════════
-// Init
-// ═══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  loadMacro();
-  loadProducts();
-  loadDbStats();
-  loadAllAISources();
-  connectSSE();
-  refreshSites();
-  setInterval(refreshSites, 6000);
-  loadAnalytics();
-  appendLog({phase:'system', message:'대시보드 초기화 완료'});
-});
-
-// ═══════════════════════════════════════════
-// Macro
-// ═══════════════════════════════════════════
-async function loadMacro() {
-  try {
-    const r = await fetch(API+'/api/macro');
-    if (!r.ok) return;
-    const d = await r.json();
-    document.getElementById('mcProducts').textContent = d.total_products || '0';
-    document.getElementById('mcProductsSub').textContent = d.data_freshness ? '최근: '+d.data_freshness.substring(0,10) : '';
-    document.getElementById('mcSources').textContent = d.total_sources || '0';
-    document.getElementById('mcAvgPrice').textContent = d.avg_price_sar != null ? d.avg_price_sar.toFixed(1) : '-';
-    document.getElementById('mcOutlier').textContent = d.outlier_rate != null ? d.outlier_rate+'%' : '-';
-    document.getElementById('mcOutlierSub').textContent = `정상 ${d.normal_count} / 이상치 ${d.outlier_count}`;
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════
-// Products
-// ═══════════════════════════════════════════
-async function loadProducts() {
-  const sel = document.getElementById('productSelect');
-  try {
-    const r = await fetch(API+'/api/products');
-    const data = await r.json();
-    const drugs = data.drugs || [];
-    const records = data.records || [];
-
-    drugs.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.id;
-      const dtype = d.drug_type || '';
-      opt.textContent = `${dtype ? '['+dtype+'] ' : ''}${d.trade_name} (${(d.ingredient||'').substring(0,40)})`;
-      sel.appendChild(opt);
-    });
-
-    sel.addEventListener('change', () => {
-      selectedKey = sel.value;
-      document.getElementById('btnRun').disabled = !selectedKey;
-      document.getElementById('btnFull').disabled = !selectedKey;
-    });
-
-    renderOutlier(records);
-  } catch(e) {
-    appendLog({phase:'error', message:'품목 로드 실패: '+e.message});
-  }
-}
-
-// ═══════════════════════════════════════════
-// SSE
-// ═══════════════════════════════════════════
-function connectSSE() {
-  if (sseSource) sseSource.close();
-  sseSource = new EventSource(API+'/api/stream');
-  sseSource.onmessage = function(e) {
-    try {
-      const ev = JSON.parse(e.data);
-      appendLog(ev);
-      if (ev.phase === 'site_progress') updateSiteCard(ev.site_key, ev.status, ev.message);
-      if (ev.phase === 'pipeline') updateStep(ev.step);
-    } catch(err) {}
-  };
-  sseSource.onerror = () => setTimeout(connectSSE, 3000);
-}
-
-function appendLog(ev) {
-  const body = document.getElementById('logBody');
-  if (!body) return;
-  logCount++;
-  document.getElementById('logCount').textContent = '('+logCount+')';
-  const ts = ev.ts ? ev.ts.substring(11,19) : new Date().toISOString().substring(11,19);
-  const phase = ev.phase || '';
-  const isErr = ev.message && (ev.message.includes('실패') || ev.message.includes('오류') || ev.message.includes('error'));
-  const line = document.createElement('div');
-  line.className = 'log-line' + (isErr ? ' error' : '');
-  line.innerHTML = '<span class="log-ts">'+ts+'</span><span class="log-phase">['+phase+']</span>'+(ev.message||'');
-  body.appendChild(line);
-  if (body.children.length > 300) body.removeChild(body.firstChild);
-  body.scrollTop = body.scrollHeight;
-}
-
-function toggleLog() {
-  const b = document.getElementById('logBody');
-  b.classList.toggle('open');
-  document.getElementById('logToggle').innerHTML = b.classList.contains('open') ? '&#9650;' : '&#9660;';
-}
-
-// ═══════════════════════════════════════════
-// Sites
-// ═══════════════════════════════════════════
-function toggleSites() {
-  const b = document.getElementById('sitesBody');
-  const show = b.style.display === 'none';
-  b.style.display = show ? 'block' : 'none';
-  document.getElementById('sitesToggleIcon').innerHTML = show ? '&#9650;' : '&#9660;';
-}
-
-async function refreshSites() {
-  try {
-    const r = await fetch(API+'/api/sites');
-    const sites = await r.json();
-    document.getElementById('sitesGrid').innerHTML = sites.map(s => {
-      const cc = s.category === '공공조달' ? 'site-cat-public' : 'site-cat-private';
-      return '<div class="site-card" id="site-'+s.key+'"><div class="site-dot '+s.status+'"></div><br><span class="site-cat '+cc+'">'+s.category+'</span><div class="site-name">'+s.name+'</div><div class="site-msg">'+(s.message||s.hint||s.domain)+'</div></div>';
-    }).join('');
-  } catch(e) {}
-}
-
-function updateSiteCard(key, status, msg) {
-  const card = document.getElementById('site-'+key);
-  if (!card) return;
-  const dot = card.querySelector('.site-dot');
-  if (dot) dot.className = 'site-dot '+status;
-  const m = card.querySelector('.site-msg');
-  if (m && msg) m.textContent = msg;
-}
-
-// ═══════════════════════════════════════════
-// Progress
-// ═══════════════════════════════════════════
-const STEPS = ['crawl','analyze','refs'];
-function showProgress() {
-  document.getElementById('progressBar').style.display = 'flex';
-  resetSteps();
-  document.getElementById('sitesBody').style.display = 'block';
-  document.getElementById('sitesToggleIcon').innerHTML = '&#9650;';
-  document.getElementById('logBody').classList.add('open');
-  document.getElementById('logToggle').innerHTML = '&#9650;';
-}
-function resetSteps() {
-  STEPS.forEach(s => document.getElementById('ps-'+s).className = 'pstep');
-  [1,2].forEach(i => document.getElementById('pc-'+i).className = 'pconn');
-}
-function updateStep(step) {
-  resetSteps();
-  const idx = STEPS.indexOf(step);
-  if (idx < 0 && step === 'done') {
-    STEPS.forEach(s => document.getElementById('ps-'+s).className = 'pstep done');
-    [1,2].forEach(i => document.getElementById('pc-'+i).className = 'pconn done');
-    return;
-  }
-  for (let i = 0; i < idx; i++) {
-    document.getElementById('ps-'+STEPS[i]).className = 'pstep done';
-    if (i < 2) document.getElementById('pc-'+(i+1)).className = 'pconn done';
-  }
-  if (idx >= 0) document.getElementById('ps-'+STEPS[idx]).className = 'pstep active';
-}
-
-// ═══════════════════════════════════════════
-// Full Pipeline (crawl + analyze + report)
-// ═══════════════════════════════════════════
-async function runFullPipeline() {
-  if (!selectedKey) return;
-  const btn = document.getElementById('btnFull');
-  const btnRun = document.getElementById('btnRun');
-  btn.disabled = true;
-  btnRun.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 전체 실행 중...';
-  ['resultCard','priceCard','aiSourcesCard','pplxCard','papersCard','reportCard'].forEach(id => document.getElementById(id).style.display = 'none');
-  logCount = 0;
-  document.getElementById('logBody').innerHTML = '';
-  showProgress();
-  refreshSites();
-
-  try {
-    const r = await fetch(API+'/api/full-pipeline/'+selectedKey, {method:'POST'});
-    if (!r.ok) {
-      const err = await r.json();
-      throw new Error(err.detail);
-    }
-    const data = await r.json();
-    appendLog({phase:'full-pipeline', message:'전체 파이프라인 시작 (repo: '+data.repo+')'});
-    connectSSE();
-
-    // Poll full pipeline status
-    const fpPoll = setInterval(async () => {
-      try {
-        const sr = await fetch(API+'/api/full-pipeline/status');
-        if (!sr.ok) return;
-        const st = await sr.json();
-
-        // Update progress bar based on step
-        if (st.step === 'trigger' || st.step === 'crawling') updateStep('crawl');
-        else if (st.step === 'analyze') updateStep('analyze');
-        else if (st.step === 'refs') updateStep('refs');
-        else if (st.step === 'report') updateStep('report');
-        else if (st.step === 'done') {
-          updateStep('done');
-          clearInterval(fpPoll);
-          // Fetch result
-          const rr = await fetch(API+'/api/pipeline/'+selectedKey+'/result');
-          if (rr.ok) renderResult(await rr.json());
-          refreshSites();
-          loadMacro();
-          loadAllAISources();
-          btn.disabled = false;
-          btnRun.disabled = false;
-          btn.innerHTML = '전체 실행 (크롤링+분석)';
-        } else if (st.step === 'error') {
-          clearInterval(fpPoll);
-          btn.disabled = false;
-          btnRun.disabled = false;
-          btn.innerHTML = '전체 실행 (크롤링+분석)';
-        }
-      } catch(e) {}
-    }, 5000);
-
-  } catch(e) {
-    btn.disabled = false;
-    btnRun.disabled = false;
-    btn.innerHTML = '전체 실행 (크롤링+분석)';
-    appendLog({phase:'error', message:'전체 파이프라인 시작 실패: '+e.message});
-  }
-}
-
-// ═══════════════════════════════════════════
-// Pipeline (analyze only, no crawl)
-// ═══════════════════════════════════════════
-async function runPipeline() {
-  if (!selectedKey) return;
-  const btn = document.getElementById('btnRun');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 분석 중...';
-  ['resultCard','priceCard','aiSourcesCard','pplxCard','papersCard','reportCard'].forEach(id => document.getElementById(id).style.display = 'none');
-  logCount = 0;
-  document.getElementById('logBody').innerHTML = '';
-  showProgress();
-  refreshSites();
-  try {
-    const r = await fetch(API+'/api/pipeline/'+selectedKey, {method:'POST'});
-    if (!r.ok) throw new Error((await r.json()).detail);
-    connectSSE();
-    pollTimer = setInterval(() => pollPipeline(selectedKey), 2500);
-  } catch(e) {
-    btn.disabled = false;
-    btn.textContent = '분석 실행';
-    appendLog({phase:'error', message:'파이프라인 시작 실패: '+e.message});
-  }
-}
-
-async function pollPipeline(key) {
-  try {
-    const r = await fetch(API+'/api/pipeline/'+key+'/status');
-    if (!r.ok) return;
-    const st = await r.json();
-    updateStep(st.step);
-    if (st.status === 'done') {
-      clearInterval(pollTimer);
-      pollTimer = null;
-      const rr = await fetch(API+'/api/pipeline/'+key+'/result');
-      if (rr.ok) renderResult(await rr.json());
-      refreshSites();
-      loadMacro();
-      document.getElementById('btnRun').disabled = false;
-      document.getElementById('btnRun').textContent = '분석 실행';
-    } else if (st.status === 'error') {
-      clearInterval(pollTimer);
-      pollTimer = null;
-      STEPS.forEach(s => { const el = document.getElementById('ps-'+s); if (el.className.includes('active')) el.className = 'pstep error'; });
-      document.getElementById('btnRun').disabled = false;
-      document.getElementById('btnRun').textContent = '분석 실행';
-    }
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════
-// Render Result
-// ═══════════════════════════════════════════
-function renderResult(data) {
-  const result = data.result || {};
-  const refs = data.refs || [];
-  const pdf = data.pdf;
-  const aiSources = data.ai_sources || [];
-
-  // Verdict
-  const rc = document.getElementById('resultCard');
-  rc.style.display = 'block';
-  let vt = result.verdict || '분석실패';
-  let vc = 'verdict-error';
-  if (result.analysis_error === 'no_api_key') vt = 'API 키 미설정';
-  else if (result.analysis_error === 'claude_failed') vt = '분석 오류';
-  else if (vt === '적합' || vt === 'possible') vc = 'verdict-적합';
-  else if (vt === '조건부' || vt === 'conditional') vc = 'verdict-조건부';
-  else if (vt === '부적합' || vt === 'impossible') vc = 'verdict-부적합';
-
-  const modelInfo = result.analysis_model ? '<span style="font-size:.75rem;color:var(--muted);margin-left:12px">모델: '+(result.claude_model_id||result.analysis_model)+'</span>' : '';
-  const factors = (result.key_factors||[]).map(f => '<span class="factor-chip">'+f+'</span>').join('');
-  const conf = result.confidence != null ? (result.confidence*100).toFixed(0)+'%' : '';
-
-  document.getElementById('resultContent').innerHTML =
-    '<div style="margin-bottom:12px"><span class="verdict-badge '+vc+'">'+vt+'</span>'+(conf?'<span style="margin-left:12px;font-size:.9rem;font-weight:600;color:var(--primary)">신뢰도 '+conf+'</span>':'')+modelInfo+'</div>'+
-    '<div style="margin-bottom:8px"><strong>'+result.trade_name+'</strong> <span style="color:var(--muted)">('+(result.inn||'')+')</span></div>'+
-    (result.rationale?'<div style="padding:10px 14px;background:#f8fafc;border-radius:8px;font-size:.88rem;line-height:1.7;margin-bottom:10px">'+result.rationale+'</div>':'')+
-    (factors?'<div style="margin-top:8px">'+factors+'</div>':'');
-
-  renderPriceComparison(result.price_comparison);
-  renderAISources(aiSources);
-
-  // Refs
-  const pc2 = document.getElementById('papersCard');
-  pc2.style.display = 'block';
-  document.getElementById('papersContent').innerHTML = refs.length > 0
-    ? refs.map(r => '<div style="padding:8px 0;border-bottom:1px solid var(--border)"><a href="'+r.url+'" target="_blank" style="color:var(--primary);font-weight:500;text-decoration:none">'+r.title+'</a><div style="font-size:.75rem;color:var(--muted)">'+r.source+' — '+r.reason+'</div></div>').join('')
-    : '<div style="color:var(--muted);font-size:.85rem">PERPLEXITY_API_KEY가 설정되지 않았거나 검색 결과가 없습니다.</div>';
-
-  // Report card: always show with generate button
-  document.getElementById('reportCard').style.display = 'block';
-  document.getElementById('reportResult').innerHTML = pdf
-    ? '<a href="'+API+'/api/report/download?filename='+encodeURIComponent(pdf)+'" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.9rem">'+pdf+' 다운로드</a>'
-    : '';
-  rc.scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-// ═══════════════════════════════════════════
-// Price Comparison
-// ═══════════════════════════════════════════
-function renderPriceComparison(pd) {
-  const card = document.getElementById('priceCard');
-  if (!pd) { card.style.display='block'; document.getElementById('priceContent').innerHTML='<div style="color:var(--muted)">가격 데이터 없음</div>'; return; }
-  card.style.display = 'block';
-  const s = pd.summary||{};
-  const est = pd.estimated||{};
-  let h = '';
-  if (s.count > 0) {
-    h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;text-align:center">';
-    h += '<div style="padding:10px;background:#f0fdf4;border-radius:8px"><div style="font-size:.7rem;color:var(--muted)">데이터</div><div style="font-size:1.2rem;font-weight:700;color:var(--success)">'+s.count+'건</div></div>';
-    h += '<div style="padding:10px;background:#eff6ff;border-radius:8px"><div style="font-size:.7rem;color:var(--muted)">최저</div><div style="font-size:1.2rem;font-weight:700;color:var(--primary)">'+(s.min!=null?s.min.toFixed(2):'-')+' SAR</div></div>';
-    h += '<div style="padding:10px;background:#eff6ff;border-radius:8px"><div style="font-size:.7rem;color:var(--muted)">최고</div><div style="font-size:1.2rem;font-weight:700;color:var(--primary)">'+(s.max!=null?s.max.toFixed(2):'-')+' SAR</div></div>';
-    h += '<div style="padding:10px;background:#fefce8;border-radius:8px"><div style="font-size:.7rem;color:var(--muted)">평균</div><div style="font-size:1.2rem;font-weight:700;color:var(--warning)">'+(s.avg!=null?s.avg.toFixed(2):'-')+' SAR</div></div>';
-    h += '</div>';
-  }
-  if (est.min_sar||est.max_sar||est.avg_sar) {
-    h += '<div style="padding:12px 14px;background:#f5f3ff;border-radius:8px;margin-bottom:14px"><div style="font-size:.8rem;font-weight:600;color:var(--purple);margin-bottom:6px">AI 예상 가격</div>';
-    const parts = [];
-    if (est.min_sar&&est.max_sar) parts.push(est.min_sar.toFixed(2)+' ~ '+est.max_sar.toFixed(2)+' SAR');
-    if (est.avg_sar) parts.push('예상 평균: '+est.avg_sar.toFixed(2)+' SAR');
-    h += '<div style="font-size:.9rem;font-weight:600">'+parts.join(' | ')+'</div>';
-    if (est.basis) h += '<div style="font-size:.78rem;color:var(--muted);margin-top:4px">'+est.basis+'</div>';
-    h += '</div>';
-  } else if (s.count===0) {
-    h += '<div style="padding:12px;background:#fef2f2;border-radius:8px;margin-bottom:14px;font-size:.85rem;color:var(--danger)">동일 성분 가격 데이터 없음 — 비교 불가</div>';
-  }
-  const si = (pd.same_ingredient||[]).slice(0,10);
-  if (si.length) {
-    h += '<div style="font-size:.8rem;font-weight:600;margin-bottom:6px">동일 성분 제품</div><table class="price-table"><thead><tr><th>제품명</th><th>가격</th><th>소스</th><th>구분</th></tr></thead><tbody>';
-    si.forEach(p => { h += '<tr><td>'+p.trade_name+'</td><td>'+(p.price!=null?'<span class="price-highlight">'+p.price.toFixed(2)+' '+(p.currency||'SAR')+'</span>':'<span class="price-na">없음</span>')+'</td><td>'+(p.source||'-')+'</td><td>'+(p.type||'-')+'</td></tr>'; });
-    h += '</tbody></table>';
-  }
-  document.getElementById('priceContent').innerHTML = h;
-}
-
-// ═══════════════════════════════════════════
-// AI Sources
-// ═══════════════════════════════════════════
-function renderAISources(sources) {
-  const card = document.getElementById('aiSourcesCard');
-  if (!sources || !sources.length) { card.style.display='none'; return; }
-  card.style.display = 'block';
-  document.getElementById('aiSourcesCount').textContent = sources.length+'개 소스 발견';
-  const sorted = sources.sort((a,b)=>(b.relevance_score||0)-(a.relevance_score||0));
-  document.getElementById('aiSourcesContent').innerHTML = sorted.map(s => {
-    const pct=Math.round((s.relevance_score||0)*100);
-    const bc=pct>=80?'#0d9488':pct>=60?'#f59e0b':'#94a3b8';
-    return '<div class="ai-source-item"><div style="flex:1;min-width:0"><a class="ai-source-url" href="'+(s.url||'#')+'" target="_blank">'+(s.domain||s.url||'Unknown')+'</a><div style="margin-top:4px">'+(s.category?'<span style="font-size:.7rem;padding:1px 6px;border-radius:4px;background:#eff6ff;color:#1d4ed8">'+s.category+'</span>':'')+'</div></div><div style="display:flex;gap:12px;align-items:center;flex-shrink:0"><span title="Relevance: '+pct+'%"><span class="relevance-bar"><span class="relevance-bar-fill" style="width:'+pct+'%;background:'+bc+'"></span></span>'+pct+'%</span><span class="price-badge '+(s.has_price_data?'price-yes':'price-no')+'">'+(s.has_price_data?'Price':'No price')+'</span></div></div>';
-  }).join('');
-}
-
-// ═══════════════════════════════════════════
-// Perplexity
-// ═══════════════════════════════════════════
-async function runPerplexity() {
-  const btn = document.getElementById('btnPplx');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  appendLog({phase:'perplexity', message:'Perplexity 시장 분석 요청...'});
-  try {
-    const url = API+'/api/perplexity/analyze'+(selectedKey?'?product_key='+selectedKey:'');
-    const r = await fetch(url, {method:'POST'});
-    if (!r.ok) throw new Error((await r.json()).detail);
-    const poll = setInterval(async () => {
-      try {
-        const pr = await fetch(API+'/api/perplexity/result');
-        if (pr.status === 200) {
-          clearInterval(poll);
-          const data = await pr.json();
-          renderPerplexity(data);
-          btn.disabled = false;
-          btn.textContent = 'Perplexity';
-        }
-      } catch(e) {}
-    }, 2000);
-  } catch(e) {
-    appendLog({phase:'error', message:'Perplexity 실패: '+e.message});
-    btn.disabled = false;
-    btn.textContent = 'Perplexity';
-  }
-}
-
-function renderPerplexity(data) {
-  const card = document.getElementById('pplxCard');
-  card.style.display = 'block';
-  if (data.error) {
-    document.getElementById('pplxContent').innerHTML = '<div style="color:var(--danger)">'+data.error+'</div>';
-    return;
-  }
-  let h = '';
-  if (data.insights) h += '<div style="padding:12px;background:#f5f3ff;border-radius:8px;font-size:.88rem;line-height:1.7;margin-bottom:12px">'+data.insights+'</div>';
-  if (data.sources && data.sources.length) {
-    renderAISources(data.sources);
-    h += '<div style="font-size:.8rem;color:var(--muted)">'+data.sources.length+'개 소스 발견 (AI 발견 소스 카드에 표시됨)</div>';
-  }
-  if (data.timestamp) h += '<div style="font-size:.7rem;color:var(--muted);margin-top:8px">분석 시각: '+data.timestamp.substring(0,19)+'</div>';
-  document.getElementById('pplxContent').innerHTML = h || '<div style="color:var(--muted)">결과 없음</div>';
-}
-
-// ═══════════════════════════════════════════
-// Report Generation (separate button)
-// ═══════════════════════════════════════════
-async function generateReport() {
-  if (!selectedKey) return;
-  const btn = document.getElementById('btnReport');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> 보고서 생성 중...';
-  appendLog({phase:'report', message:'보고서 생성 요청...'});
-
-  try {
-    const r = await fetch(API+'/api/pipeline/'+selectedKey, {method:'POST'});
-    // Use existing pipeline but only for report
-    // Actually trigger report endpoint directly
-    const rr = await fetch(API+'/api/report?run_analysis=false', {method:'POST'});
-    if (!rr.ok) throw new Error((await rr.json()).detail);
-
-    // Poll report status
-    const rpPoll = setInterval(async () => {
-      try {
-        const sr = await fetch(API+'/api/report/status');
-        if (!sr.ok) return;
-        const st = await sr.json();
-        if (!st.running && st.latest_pdf) {
-          clearInterval(rpPoll);
-          document.getElementById('reportResult').innerHTML =
-            '<a href="'+API+'/api/report/download?filename='+encodeURIComponent(st.latest_pdf)+'" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.9rem">'+st.latest_pdf+' 다운로드</a>';
-          btn.disabled = false;
-          btn.textContent = '보고서 생성';
-          appendLog({phase:'report', message:'보고서 완료: '+st.latest_pdf});
-        }
-      } catch(e) {}
-    }, 3000);
-
-  } catch(e) {
-    btn.disabled = false;
-    btn.textContent = '보고서 생성';
-    appendLog({phase:'error', message:'보고서 생성 실패: '+e.message});
-  }
-}
-
-// ═══════════════════════════════════════════
-// DB Stats (GitHub Actions 크롤링 결과)
-// ═══════════════════════════════════════════
-async function loadDbStats() {
-  try {
-    const r = await fetch(API+'/api/db-stats');
-    if (!r.ok) return;
-    const d = await r.json();
-    if (!d.connected) {
-      appendLog({phase:'db', message:'Supabase 미연결 — 로컬 데이터만 표시'});
-      return;
-    }
-    appendLog({phase:'db', message:'Supabase 연결됨 — 총 '+d.total_records+'건 (가격 '+d.total_with_price+'건)'});
-    if (d.ai_sources_count > 0) {
-      appendLog({phase:'db', message:'AI 발견 소스: '+d.ai_sources_count+'개'});
-    }
-    // 소스별 통계 로그
-    Object.entries(d.source_stats || {}).forEach(([src, stats]) => {
-      appendLog({phase:'db', message:'  '+src+': '+stats.count+'건 (가격 '+stats.with_price+'건)'});
-    });
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════
-// AI Sources (페이지 로드 시 자동 조회)
-// ═══════════════════════════════════════════
-async function loadAllAISources() {
-  try {
-    const r = await fetch(API+'/api/ai-sources');
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.sources && d.sources.length > 0) {
-      renderAISources(d.sources);
-      appendLog({phase:'ai', message:'AI 발견 소스 '+d.count+'개 로드됨'});
-    }
-  } catch(e) {}
-}
-
-// ═══════════════════════════════════════════
-// Outlier (dashboard_data.json based)
-// ═══════════════════════════════════════════
-function renderOutlier(records) {
-  if (!records || !records.length) return;
-  const normal = records.filter(r => !r.outlier).length;
-  const outlier = records.filter(r => r.outlier).length;
-  const total = records.length;
-
-  document.getElementById('olNormal').textContent = normal;
-  document.getElementById('olOutlier').textContent = outlier;
-  document.getElementById('olTotal').textContent = total;
-
-  // Donut
-  if (total > 0) {
-    const np = normal/total*100, op = outlier/total*100;
-    document.getElementById('donutNormal').setAttribute('stroke-dasharray', np+' '+(100-np));
-    document.getElementById('donutOutlier').setAttribute('stroke-dasharray', op+' '+(100-op));
-    document.getElementById('donutOutlier').setAttribute('stroke-dashoffset', 25-np);
-    document.getElementById('donutLabel').textContent = Math.round(np)+'%';
-  }
-
-  // Confidence bars
-  const buckets = {'0.3':0,'0.4':0,'0.5':0,'0.6':0,'0.7':0,'0.8':0,'0.9':0,'1.0':0};
-  records.forEach(r => {
-    if (r.confidence != null) {
-      const b = (Math.min(Math.floor(r.confidence*10)/10, 0.9)).toFixed(1);
-      if (buckets[b] !== undefined) buckets[b]++;
-    }
-  });
-  const maxB = Math.max(...Object.values(buckets), 1);
-  const barsEl = document.getElementById('confBars');
-  const labelsEl = document.getElementById('confLabels');
-  barsEl.innerHTML = '';
-  labelsEl.innerHTML = '';
-  Object.entries(buckets).forEach(([l,v]) => {
-    const h = Math.max((v/maxB)*100, 4);
-    const c = parseFloat(l)>=0.8?'var(--success)':parseFloat(l)>=0.6?'var(--warning)':'var(--danger)';
-    barsEl.innerHTML += '<div class="conf-bar" style="height:'+h+'%"><div class="conf-bar-fill" style="height:100%;background:'+c+'"></div></div>';
-    labelsEl.innerHTML += '<div class="conf-label" style="flex:1">'+l+'</div>';
-  });
-
-  // Table
-  const tbody = document.getElementById('outlierTbody');
-  tbody.innerHTML = records.slice(0,25).map(r => {
-    const st = r.outlier ? '<span style="color:var(--danger);font-weight:600">OUTLIER</span>' : '<span style="color:var(--success);font-weight:600">NORMAL</span>';
-    const price = r.price != null ? r.price.toLocaleString('en',{minimumFractionDigits:2}) : '-';
-    const conf = r.confidence != null ? (r.confidence*100).toFixed(1)+'%' : '-';
-    const inn = r.inn_name || '-';
-    return '<tr><td>'+r.trade_name+'</td><td style="text-align:right;'+(r.outlier?'color:var(--danger)':'')+'">'+price+'</td><td>'+conf+'</td><td>'+inn+'</td><td>'+(r.dosage_form||'-')+'</td><td>'+st+'</td></tr>';
-  }).join('');
-}
-
-// ═══════════════════════════════════════════
-// Analytics (from dashboard.html)
-// ═══════════════════════════════════════════
-async function loadAnalytics() {
-  try {
-    const r = await fetch(API+'/api/dashboard-data');
-    if (!r.ok) { document.getElementById('analyticsSection').style.display='none'; return; }
-    const D = await r.json();
-    renderAnalytics(D);
-  } catch(e) { document.getElementById('analyticsSection').style.display='none'; }
-}
-
-function renderAnalytics(D) {
-  // Pipeline flow
-  const steps = [{name:'SFDA API',desc:'Public PHP endpoint'},{name:'map_web_to_schema',desc:'42-field mapping'},{name:'normalize_record',desc:'Strength/Dosage/Price'},{name:'INN Normalizer',desc:'WHO INN matching'},{name:'Outlier Detector',desc:'K-statistic (IQR)'},{name:'Reputation Bonus',desc:'EMA: '+D.reputation},{name:'Audit + Metrics',desc:D.audit_count+' events'},{name:'DB Upsert',desc:'products table'}];
-  const pf = document.getElementById('pipelineFlow');
-  pf.innerHTML = '';
-  steps.forEach((s,i) => { if(i>0) pf.innerHTML+='<span class="pipeline-arrow">&rarr;</span>'; pf.innerHTML+='<div class="pipeline-step"><div class="step-name">'+s.name+'</div><div class="step-desc">'+s.desc+'</div></div>'; });
-
-  // KPI
-  const n=D.records.filter(r=>!r.outlier).length, o=D.records.filter(r=>r.outlier).length;
-  document.getElementById('kpiCards').innerHTML=[
-    {l:'Records',v:D.records.length,c:'color:var(--accent)',s:'of '+D.total_records_sfda.toLocaleString()+' ('+D.total_pages_sfda+' pages)'},
-    {l:'Normal / Outlier',v:n+' / '+o,c:n>o?'color:#4ade80':'color:#f87171',s:'Outlier: '+(o/D.records.length*100).toFixed(1)+'%'},
-    {l:'Duration',v:D.total_time+'s',c:'color:#fbbf24',s:'Avg: '+D.metrics.page_fetch_sec.mean+'s P95: '+D.metrics.page_fetch_sec.p95+'s'},
-    {l:'Reputation',v:D.reputation,c:'color:#a78bfa',s:'Bonus: '+(D.reputation_bonus>0?'+':'')+D.reputation_bonus}
-  ].map(k=>'<div class="a-card"><h3>'+k.l+'</h3><div class="a-stat" style="'+k.c+'">'+k.v+'</div><div class="a-label">'+k.s+'</div></div>').join('');
-
-  // Chart defaults
-  Chart.defaults.color='#94a3b8'; Chart.defaults.borderColor='rgba(51,65,85,0.5)'; Chart.defaults.font.family="'Segoe UI',sans-serif"; Chart.defaults.font.size=11;
-
-  // Price scatter
-  const np2=D.records.filter(r=>!r.outlier&&r.price).map((r,i)=>({x:i,y:r.price})), op2=D.records.filter(r=>r.outlier&&r.price).map((r,i)=>({x:i+np2.length,y:r.price}));
-  new Chart(document.getElementById('chartPriceDist'),{type:'scatter',data:{datasets:[{label:'Normal',data:np2,backgroundColor:'#4ade80',pointRadius:5},{label:'Outlier',data:op2,backgroundColor:'#f87171',pointRadius:6,pointStyle:'crossRot'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{type:'logarithmic',ticks:{callback:v=>'SAR '+v.toLocaleString()}},x:{display:false}},plugins:{legend:{position:'bottom'}}}});
-
-  // Page time
-  new Chart(document.getElementById('chartPageTime'),{type:'bar',data:{labels:D.page_times.map(p=>'P'+p.page),datasets:[{label:'Time(s)',data:D.page_times.map(p=>p.time),backgroundColor:'#38bdf8',borderRadius:6},{label:'Items',data:D.page_times.map(p=>p.items),backgroundColor:'rgba(251,191,36,0.4)',borderRadius:6,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true},y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false}}},plugins:{legend:{position:'bottom'}}}});
-
-  // Reputation
-  new Chart(document.getElementById('chartReputation'),{type:'line',data:{labels:D.rep_history.map(r=>'R'+r.run),datasets:[{label:'Score',data:D.rep_history.map(r=>r.score),borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,0.1)',fill:true,tension:.3,pointRadius:D.rep_history.map(r=>r.success?3:7),pointBackgroundColor:D.rep_history.map(r=>r.success?'#a78bfa':'#f87171'),pointStyle:D.rep_history.map(r=>r.success?'circle':'crossRot')},{label:'Threshold',data:D.rep_history.map(()=>0.5),borderColor:'rgba(148,163,184,0.3)',borderDash:[5,5],pointRadius:0,fill:false}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:1}},plugins:{legend:{position:'bottom'}}}});
-
-  // Confidence
-  const cb={}; D.records.forEach(r=>{const b=(Math.floor(r.confidence*20)/20).toFixed(2);cb[b]=(cb[b]||0)+1;}); const cl=Object.keys(cb).sort();
-  new Chart(document.getElementById('chartConfidence'),{type:'bar',data:{labels:cl,datasets:[{data:cl.map(l=>cb[l]),backgroundColor:cl.map(l=>parseFloat(l)>=0.9?'#4ade80':parseFloat(l)>=0.7?'#fbbf24':'#f87171'),borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
-
-  // Outlier breakdown
-  const rs={}; D.records.filter(r=>r.outlier).forEach(r=>{let rr='unknown';if(r.anomaly_reason){rr=r.anomaly_reason.includes('n=')&&r.anomaly_reason.includes('<5')?'n<5 median':'K-statistic';}rs[rr]=(rs[rr]||0)+1;});const rl=Object.keys(rs);
-  new Chart(document.getElementById('chartOutlierBreakdown'),{type:'doughnut',data:{labels:rl,datasets:[{data:rl.map(l=>rs[l]),backgroundColor:['#f87171','#fb923c','#a78bfa'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'}}}});
-
-  // Antibot
-  document.getElementById('antibotGrid').innerHTML=[{t:'Cloudflare',a:'Delay x3',m:'3.0x',c:'#38bdf8',cb:false},{t:'Rate Limit',a:'Retry-After',m:'2.0x',c:'#fbbf24',cb:false},{t:'IP Block',a:'Circuit Break',m:'STOP',c:'#f87171',cb:true},{t:'CAPTCHA',a:'Circuit Break',m:'STOP',c:'#f472b6',cb:true},{t:'WAF',a:'Exp. Backoff',m:'5.0x',c:'#fb923c',cb:false}].map(ab=>'<div class="ab-card"><div class="ab-type">'+ab.t+'</div><div class="ab-mult" style="color:'+ab.c+'">'+ab.m+'</div><div class="ab-action">'+ab.a+'</div><div style="margin-top:6px">'+(ab.cb?'<span class="a-badge a-badge-red">Break</span>':'<span class="a-badge a-badge-green">Retry</span>')+'</div></div>').join('');
-
-  // Records table
-  const tb=document.querySelector('#recordsTable tbody'); tb.innerHTML='';
-  D.records.forEach(r=>{const st=r.outlier?'<span class="a-badge a-badge-red">OUTLIER</span>':'<span class="a-badge a-badge-green">NORMAL</span>';const inn=r.inn_name?'<span class="a-badge a-badge-blue">'+r.inn_name+'</span>':'<span class="tag">-</span>';tb.innerHTML+='<tr><td style="font-family:monospace;font-size:11px">'+r.product_id+'</td><td>'+r.trade_name+'</td><td style="text-align:right;font-weight:600;'+(r.outlier?'color:#f87171':'')+'">'+( r.price!=null?r.price.toLocaleString('en',{minimumFractionDigits:2}):'-')+'</td><td><div style="display:flex;align-items:center;gap:6px"><div style="width:50px;height:6px;background:var(--dark-surface2);border-radius:3px;overflow:hidden"><div style="width:'+(r.confidence*100)+'%;height:100%;background:'+(r.confidence>=0.9?'#4ade80':r.confidence>=0.7?'#fbbf24':'#f87171')+';border-radius:3px"></div></div><span style="font-size:11px">'+r.confidence.toFixed(3)+'</span></div></td><td>'+inn+'</td><td><span class="tag">'+(r.dosage_form||'-')+'</span></td><td>'+st+'</td><td style="font-size:10px;color:var(--dark-text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.anomaly_reason||'-')+'</td></tr>';});
-
-  // Metrics
-  const mc=document.getElementById('metricsCounters'); mc.innerHTML='';
-  Object.entries(D.metrics.counters).forEach(([k,v])=>{const c=k.includes('success')?'#4ade80':k.includes('outlier')?'#f87171':'var(--accent)';mc.innerHTML+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--dark-surface2)"><span style="color:var(--dark-text2);font-size:12px">'+k.replace(/_/g,' ')+'</span><span style="font-weight:700;color:'+c+';font-size:14px">'+v.toLocaleString()+'</span></div>';});
-  mc.innerHTML+='<div style="display:flex;justify-content:space-between;padding:8px 0"><span style="color:var(--dark-text2);font-size:12px">audit events</span><span style="font-weight:700;color:#a78bfa;font-size:14px">'+D.audit_count+'</span></div>';
-
-  // Audit timeline
-  const at=['crawl_started','page_fetched','record_processed','crawl_finished'],ad=at.map(t=>t==='crawl_started'||t==='crawl_finished'?1:t==='page_fetched'?D.page_times.length:D.records.length);
-  new Chart(document.getElementById('chartAuditTimeline'),{type:'bar',data:{labels:at.map(t=>t.replace('_',' ')),datasets:[{data:ad,backgroundColor:['#38bdf8','#fbbf24','#4ade80','#a78bfa'],borderRadius:6}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
-}
-</script>
+<script src="/static/app.js?v=4"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 frontend/server.py -- 사우디 제약 크롤러 대시보드 서버
 
 대시보드 UI 서빙 + SSE 실시간 이벤트 + 단일 품목 파이프라인 실행.
-기존 targeted_search / ai_search / report_generator 모듈을 재활용한다.
+기존 targeted_search / report_generator 모듈을 재활용한다.
 
 실행:
     cd <project_root>
@@ -17,14 +17,11 @@ import logging
 import os
 import sys
 import time
-import subprocess
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-
-import httpx
 
 # ── 프로젝트 루트 계산 ──
 ROOT = Path(__file__).resolve().parent.parent
@@ -126,10 +123,27 @@ def _get_llm():
     return _llm_client
 
 
+def _perplexity_key_configured() -> bool:
+    """UI용: 루트 `.env`에 키가 있는지(서버 프로세스 환경)."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(ROOT / ".env")
+    except ImportError:
+        pass
+    return bool(os.environ.get("PERPLEXITY_API_KEY", "").strip())
+
+
 def _get_pplx():
     global _pplx_client
     if _pplx_client is not None:
         return _pplx_client
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(ROOT / ".env")
+    except ImportError:
+        pass
     pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
     if pplx_key:
         try:
@@ -249,8 +263,23 @@ async def run_full_crawl():
             for drug in drugs:
                 await _emit({"phase": "log", "message": f"[{drug.trade_name}] 크롤링 시작"})
                 try:
-                    result = search_one_drug(drug)
-                    sr_dict = result.to_dict()
+                    agg = search_one_drug(drug)
+                    sr_dict = agg.to_dict()
+                    sb_run = _get_supabase()
+                    if sb_run:
+                        try:
+                            from assets.snippets.pipeline_persist import (
+                                persist_aggregated_search_to_supabase,
+                            )
+
+                            n_ins = persist_aggregated_search_to_supabase(sb_run, agg)
+                            if n_ins:
+                                await _emit({
+                                    "phase": "log",
+                                    "message": f"[{drug.trade_name}] Supabase 적재 {n_ins}건",
+                                })
+                        except Exception as ex:
+                            logger.warning("[%s] DB 적재 실패: %s", drug.trade_name, ex)
                     for sr in sr_dict.get("source_results", []):
                         sname = sr.get("source_name", "")
                         for sd in SITES:
@@ -285,7 +314,7 @@ async def get_status():
 @app.get("/api/sites")
 async def get_sites():
     result = []
-    # DB에서 소스별 크롤링 통계 조회 (GitHub Actions 결과 반영)
+    # DB에서 소스별 크롤링 통계 조회 (Supabase 등에 적재된 데이터 반영)
     db_stats: dict[str, dict] = {}
     sb = _get_supabase()
     if sb:
@@ -324,6 +353,117 @@ async def get_sites():
 # 제품 목록
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _row_ingredient_label(rec: dict) -> str:
+    """`products` 행 성분 표시. 일부 Supabase 스키마는 `scientific_name` 대신 `inn_name`만 둠."""
+    return (rec.get("inn_name") or rec.get("scientific_name") or "").strip()
+
+
+def _row_matches_ingredient_key(row: dict, ingredient_key: str) -> bool:
+    """성분 문자열이 행의 INN/과학명/raw_payload 등에 부분 일치하는지 (스키마 차이 대응)."""
+    k = (ingredient_key or "").strip().lower()
+    if len(k) < 2:
+        return False
+    for fld in ("inn_name", "scientific_name"):
+        v = row.get(fld)
+        if v and k in str(v).lower():
+            return True
+    rp = row.get("raw_payload")
+    if isinstance(rp, dict):
+        for sub in ("scientific_name", "inn_name", "active_ingredient", "ingredient", "inn"):
+            v = rp.get(sub)
+            if v and k in str(v).lower():
+                return True
+    elif isinstance(rp, str) and k in rp.lower():
+        return True
+    return False
+
+
+def _fetch_products_by_ingredient_flexible(sb, ingredient_key: str, limit: int = 50) -> tuple[list[dict], Optional[str]]:
+    """Supabase `products` 컬럼명이 배포마다 달라도 동일 성분 행을 최대한 찾는다.
+
+    1) `inn_name` ilike → 2) `scientific_name` ilike → 3) SA 최근 행을 넓게 받아 메모리 필터.
+    실패 시 ( [], 오류문자열 ).
+    """
+    key = (ingredient_key or "").strip()
+    if not key:
+        return [], None
+
+    # ── 서버측 필터 (빠름) ──
+    for col in ("inn_name", "scientific_name"):
+        try:
+            resp = (
+                sb.table("products")
+                .select("*")
+                .eq("country", "SA")
+                .ilike(col, f"%{key}%")
+                .order("crawled_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            data = resp.data or []
+            if data:
+                return data, None
+        except Exception as e:
+            logger.debug("products %s 필터 조회 생략: %s", col, e)
+
+    # ── 폴백: 컬럼 부재·필터 오류 시 최근 SA 행만 받아 매칭 ──
+    try:
+        resp = (
+            sb.table("products")
+            .select("*")
+            .eq("country", "SA")
+            .order("crawled_at", desc=True)
+            .limit(1500)
+            .execute()
+        )
+        rows = resp.data or []
+        matched = [r for r in rows if _row_matches_ingredient_key(r, key)][:limit]
+        return matched, None
+    except Exception as e:
+        logger.warning("products 성분 폴백 조회 실패: %s", e)
+        return [], str(e)
+
+
+def _row_price_local(row: dict) -> Optional[float]:
+    """가격 컬럼명 차이 대응."""
+    for fld in ("price_local", "price", "retail_price"):
+        v = row.get(fld)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _shape_record_for_dashboard(rec: dict) -> dict:
+    """JSON 스냅샷(`price`, `outlier`)과 Supabase `products`(`price_local`, `outlier_flagged`) 병합 시 UI 필드 통일."""
+    out = dict(rec)
+    if out.get("price") is None and out.get("price_local") is not None:
+        try:
+            out["price"] = float(out["price_local"])
+        except (TypeError, ValueError):
+            pass
+    if "outlier" not in out and "outlier_flagged" in out:
+        out["outlier"] = bool(out.get("outlier_flagged"))
+    return out
+
+
+def _parse_ai_product_price(val: object) -> Optional[float]:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
 @app.get("/api/products")
 async def get_products():
     """레지스트리 품목 + dashboard_data.json SFDA 레코드를 병합 반환."""
@@ -338,7 +478,7 @@ async def get_products():
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text(encoding="utf-8"))
-            sfda_records = data.get("records", [])
+            sfda_records = [_shape_record_for_dashboard(r) for r in data.get("records", [])]
         except Exception:
             pass
 
@@ -363,9 +503,39 @@ async def get_products():
                             row["raw_payload"] = json.loads(rp)
                         except (json.JSONDecodeError, TypeError):
                             pass
-                sfda_records.extend(rows)
+                    sfda_records.append(_shape_record_for_dashboard(row))
         except Exception as e:
             logger.warning("DB products 조회 실패: %s", e)
+
+        # AI 자율 서칭 추출분 (ai_discovered_products) — 메인 products와 별도 테이블이므로 여기서 합쳐 표시
+        try:
+            air = (
+                sb.table("ai_discovered_products")
+                .select("*")
+                .eq("country", "SA")
+                .order("crawled_at", desc=True)
+                .limit(100)
+                .execute()
+            )
+            for row in air.data or []:
+                conf = row.get("confidence")
+                try:
+                    conf_f = float(conf) if conf is not None else 0.5
+                except (TypeError, ValueError):
+                    conf_f = 0.5
+                sfda_records.append({
+                    "product_id": f"ai_discovered:{row.get('id', '')}",
+                    "trade_name": row.get("product_name") or "(AI 추출)",
+                    "price": _parse_ai_product_price(row.get("price")),
+                    "confidence": conf_f,
+                    "outlier": False,
+                    "inn_name": row.get("inn_name"),
+                    "dosage_form": row.get("strength") or "",
+                    "source_name": row.get("source") or "ai_discovered",
+                    "anomaly_reason": None,
+                })
+        except Exception as e:
+            logger.debug("ai_discovered_products 병합 생략: %s", e)
 
     return {
         "drugs": drug_list,
@@ -485,6 +655,7 @@ async def get_pipeline_result(product_key: str):
         "refs": task.get("refs"),
         "pdf": task.get("pdf"),
         "ai_sources": _ai_sources_cache.get(product_key, []),
+        "perplexity_key_set": _perplexity_key_configured(),
     }
 
 
@@ -503,48 +674,62 @@ async def _run_pipeline_for_product(product_key: str, drug: TargetDrug) -> None:
         await _emit({"phase": "pipeline", "step": "crawl",
                       "message": f"[{drug.trade_name}] 크롤링 시작"})
 
-        search_result = None
+        search_result: Optional[dict] = None
         sb = _get_supabase()
-        if sb:
-            try:
-                ingredient_key = drug.ingredient.split("+")[0].strip()
-                resp = (
-                    sb.table("products").select("*")
-                    .eq("country", "SA")
-                    .ilike("active_ingredient", f"%{ingredient_key}%")
-                    .order("crawled_at", desc=True)
-                    .limit(50)
-                    .execute()
-                )
-                if resp.data:
-                    search_result = {"source": "database", "rows": resp.data, "count": len(resp.data)}
-                    await _emit({"phase": "pipeline", "step": "crawl",
-                                  "message": f"DB에서 {len(resp.data)}건 조회"})
-            except Exception as e:
-                await _emit({"phase": "log", "message": f"DB 조회 실패, 직접 크롤링: {e}"})
+        crawl_agg: Optional[AggregatedResult] = None
 
-        if not search_result:
+        # ── Step 1a: 크롤 (고정 소스 search_one_drug) ──
+        try:
+            crawl_agg = search_one_drug(drug)
+            sr_dict = crawl_agg.to_dict()
+            search_result = sr_dict
+            for sr in sr_dict.get("source_results", []):
+                sname = sr.get("source_name", "")
+                for sd in SITES:
+                    if sd["key"] == sname or sd["key"] in sname or sname in sd["key"]:
+                        _emit_sync({
+                            "phase": "site_progress",
+                            "site_key": sd["key"],
+                            "status": "error" if sr.get("error") else "done",
+                            "message": sr.get("error") or f"{len(sr.get('matches', []))}건",
+                        })
+                        break
+            total = sr_dict.get("total_matches", 0)
+            await _emit({"phase": "pipeline", "step": "crawl",
+                          "message": f"크롤링 완료: {total}건"})
+        except Exception as e:
+            await _emit({"phase": "log", "message": f"크롤링 실패: {e}"})
+            search_result = {"total_matches": 0, "source_results": [], "error": str(e)}
+            crawl_agg = None
+
+        # 크롤 매칭 → Supabase `products` 적재 (이전에는 메모리만 반환되어 DB 건수가 안 늘었음)
+        if sb and crawl_agg:
             try:
-                result = search_one_drug(drug)
-                sr_dict = result.to_dict()
-                search_result = sr_dict
-                for sr in sr_dict.get("source_results", []):
-                    sname = sr.get("source_name", "")
-                    for sd in SITES:
-                        if sd["key"] == sname or sd["key"] in sname or sname in sd["key"]:
-                            _emit_sync({
-                                "phase": "site_progress",
-                                "site_key": sd["key"],
-                                "status": "error" if sr.get("error") else "done",
-                                "message": sr.get("error") or f"{len(sr.get('matches', []))}건",
-                            })
-                            break
-                total = sr_dict.get("total_matches", 0)
-                await _emit({"phase": "pipeline", "step": "crawl",
-                              "message": f"크롤링 완료: {total}건"})
+                from assets.snippets.pipeline_persist import persist_aggregated_search_to_supabase
+
+                n_ins = await asyncio.to_thread(
+                    persist_aggregated_search_to_supabase, sb, crawl_agg
+                )
+                if n_ins:
+                    await _emit({"phase": "pipeline", "step": "crawl",
+                                  "message": f"Supabase 적재: {n_ins}건"})
             except Exception as e:
-                await _emit({"phase": "log", "message": f"크롤링 실패: {e}"})
-                search_result = {"total_matches": 0, "source_results": [], "error": str(e)}
+                logger.warning("크롤 결과 DB 적재 실패: %s", e)
+                await _emit({"phase": "log", "message": f"DB 적재 실패: {e}"})
+
+        # ── Step 1b: DB 재조회 (적재 반영 후 동일 성분 스냅샷, Claude 입력용) ──
+        if sb:
+            ingredient_key = drug.ingredient.split("+")[0].strip()
+            rows, db_err = _fetch_products_by_ingredient_flexible(sb, ingredient_key, limit=50)
+            if db_err:
+                await _emit({"phase": "log", "message": f"DB 재조회 실패: {db_err}"})
+            elif rows:
+                search_result = {"source": "database", "rows": rows, "count": len(rows)}
+                await _emit({"phase": "pipeline", "step": "crawl",
+                              "message": f"DB 재조회: 총 {len(rows)}건"})
+            else:
+                await _emit({"phase": "pipeline", "step": "crawl",
+                              "message": "DB 재조회: 동일 성분 레코드 없음 — 크롤 결과로 분석"})
 
         _state["running"] = False
 
@@ -617,6 +802,10 @@ def _analyze_single_product(
         "confidence": 0.0,
         "rationale": "",
         "key_factors": [],
+        "hs_code": None,
+        "case_type": None,
+        "pillars": {},
+        "strategy": {},
         "analysis_error": None,
         "analysis_model": None,
         "claude_model_id": None,
@@ -654,12 +843,27 @@ def _analyze_single_product(
 {price_summary}
 
 ## 분석 요청
-아래 JSON 형식으로 응답해주세요:
+아래 JSON 형식으로만 응답하세요. 모든 설명 필드는 한국어 자연어만 사용하고 JSON/코드/키 이름을 본문에 넣지 마세요.
 {{
   "verdict": "적합" | "조건부" | "부적합",
   "confidence": 0.0~1.0,
+  "hs_code": "HS 3004 같은 문자열" | null,
+  "case_type": "Case A" | "Case B" | "Case C" | null,
   "rationale": "판정 근거 (한국어, 3~5문장)",
-  "key_factors": ["핵심 요인 1", "핵심 요인 2", ...],
+  "key_factors": ["핵심 요인 1", "핵심 요인 2"],
+  "pillars": {{
+    "market_medical": "시장·의료·역학 (2~4문장)",
+    "regulation": "규제·등록 (2~4문장)",
+    "trade": "무역·관세 (2~4문장)",
+    "procurement": "조달·입찰 (2~4문장)",
+    "distribution": "유통·파트너 (2~4문장)"
+  }},
+  "strategy": {{
+    "entry_channels": "진입 채널 전략 (단계별)",
+    "price_positioning": "가격 포지셔닝",
+    "distribution_partners": "유통 파트너",
+    "risk_conditions": "리스크·조건 및 ※ 보조 메모 가능"
+  }},
   "estimated_price_range": {{
     "min_sar": 숫자 또는 null,
     "max_sar": 숫자 또는 null,
@@ -674,14 +878,22 @@ def _analyze_single_product(
 - 부적합: 관련 데이터 전무 또는 규제 장벽 확인"""
 
     try:
-        from llm_client import MODEL_SONNET
-        resp = llm.ask(prompt, model=MODEL_SONNET, max_tokens=2048)
+        from llm_client import MODEL_HAIKU
+        resp = llm.ask(prompt, model=MODEL_HAIKU, max_tokens=4096)
         parsed = resp.parse_json()
 
         base_result["verdict"] = parsed.get("verdict", "분석실패")
         base_result["confidence"] = float(parsed.get("confidence", 0.0))
         base_result["rationale"] = parsed.get("rationale", "")
         base_result["key_factors"] = parsed.get("key_factors", [])
+        hc = parsed.get("hs_code")
+        base_result["hs_code"] = hc if isinstance(hc, str) and hc.strip() else None
+        ct = parsed.get("case_type")
+        base_result["case_type"] = ct if isinstance(ct, str) and ct.strip() else None
+        pl = parsed.get("pillars")
+        base_result["pillars"] = pl if isinstance(pl, dict) else {}
+        st = parsed.get("strategy")
+        base_result["strategy"] = st if isinstance(st, dict) else {}
         base_result["analysis_model"] = "claude"
         base_result["claude_model_id"] = resp.model
 
@@ -705,28 +917,23 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
     sb = _get_supabase()
     ingredient_key = drug.ingredient.split("+")[0].strip()
 
-    # DB에서 동일 성분 가격 조회
+    # DB에서 동일 성분 가격 조회 (컬럼명·필터 호환)
     if sb:
         try:
-            # 동일 성분 제품
-            resp = (
-                sb.table("products")
-                .select("trade_name, price, price_currency, source_name, active_ingredient, strength, dosage_form")
-                .eq("country", "SA")
-                .ilike("active_ingredient", f"%{ingredient_key}%")
-                .not_.is_("price", "null")
-                .order("crawled_at", desc=True)
-                .limit(50)
-                .execute()
-            )
-            if resp.data:
-                for row in resp.data:
+            same_rows, same_err = _fetch_products_by_ingredient_flexible(sb, ingredient_key, limit=80)
+            if same_err:
+                logger.warning("가격 동일성분 DB 조회: %s", same_err)
+            else:
+                for row in same_rows:
+                    pl = _row_price_local(row)
+                    if pl is None:
+                        continue
                     prices.append({
                         "trade_name": row.get("trade_name", ""),
-                        "price": float(row["price"]) if row.get("price") else None,
-                        "currency": row.get("price_currency", "SAR"),
+                        "price": pl,
+                        "currency": row.get("currency", "SAR"),
                         "source": row.get("source_name", ""),
-                        "ingredient": row.get("active_ingredient", ""),
+                        "ingredient": _row_ingredient_label(row),
                         "strength": row.get("strength", ""),
                         "type": "동일성분",
                     })
@@ -734,25 +941,60 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
             # 동일 제형의 다른 약도 비교 대상으로 가져오기
             form_key = drug.dosage_form.lower().replace(".", "").strip()
             if form_key:
-                resp2 = (
-                    sb.table("products")
-                    .select("trade_name, price, price_currency, source_name, active_ingredient, dosage_form")
-                    .eq("country", "SA")
-                    .ilike("dosage_form", f"%{form_key}%")
-                    .not_.is_("price", "null")
-                    .order("price", desc=False)
-                    .limit(20)
-                    .execute()
-                )
-                if resp2.data:
-                    for row in resp2.data:
-                        competitor_prices.append({
-                            "trade_name": row.get("trade_name", ""),
-                            "price": float(row["price"]) if row.get("price") else None,
-                            "ingredient": row.get("active_ingredient", ""),
-                            "source": row.get("source_name", ""),
-                            "type": "유사제형",
-                        })
+                resp2 = None
+                try:
+                    resp2 = (
+                        sb.table("products")
+                        .select("*")
+                        .eq("country", "SA")
+                        .ilike("dosage_form", f"%{form_key}%")
+                        .not_.is_("price_local", "null")
+                        .order("price_local", desc=False)
+                        .limit(20)
+                        .execute()
+                    )
+                except Exception:
+                    try:
+                        resp2 = (
+                            sb.table("products")
+                            .select("*")
+                            .eq("country", "SA")
+                            .ilike("dosage_form", f"%{form_key}%")
+                            .order("crawled_at", desc=True)
+                            .limit(80)
+                            .execute()
+                        )
+                    except Exception as e2:
+                        logger.debug("유사제형 dosage_form 필터 생략: %s", e2)
+                cand: list[dict] = []
+                if resp2 and resp2.data:
+                    cand = [r for r in resp2.data if _row_price_local(r) is not None]
+                if not cand and form_key:
+                    try:
+                        rwide = (
+                            sb.table("products")
+                            .select("*")
+                            .eq("country", "SA")
+                            .order("crawled_at", desc=True)
+                            .limit(500)
+                            .execute()
+                        )
+                        for r in rwide.data or []:
+                            df = (r.get("dosage_form") or "").lower()
+                            if form_key in df and _row_price_local(r) is not None:
+                                cand.append(r)
+                            if len(cand) >= 20:
+                                break
+                    except Exception as e3:
+                        logger.debug("유사제형 폴백 조회 실패: %s", e3)
+                for row in cand[:20]:
+                    competitor_prices.append({
+                        "trade_name": row.get("trade_name", ""),
+                        "price": _row_price_local(row),
+                        "ingredient": _row_ingredient_label(row),
+                        "source": row.get("source_name", ""),
+                        "type": "유사제형",
+                    })
         except Exception as e:
             logger.warning("가격 데이터 DB 조회 실패: %s", e)
 
@@ -801,7 +1043,8 @@ def _summarize_crawl_data(drug: TargetDrug, search_data: Optional[dict] = None) 
         lines.append(f"- DB 조회: {len(rows)}건 (동일/유사 성분)")
         for r in rows[:5]:
             tn = r.get("trade_name", "")
-            p = r.get("price", "")
+            pl = r.get("price_local")
+            p = r.get("price") if r.get("price") is not None else pl
             src = r.get("source_name", "")
             lines.append(f"  · {tn} | 가격: {p} SAR | 소스: {src}")
     else:
@@ -893,262 +1136,6 @@ def _fetch_references(drug: TargetDrug) -> list[dict]:
 # 보고서 생성
 # ═══════════════════════════════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════════════════════════════
-# GitHub Actions 트리거 + 원클릭 전체 파이프라인
-# ═══════════════════════════════════════════════════════════════════════════
-
-_GH_TOKEN = os.environ.get("GH_TOKEN", "")
-_GH_REPO = os.environ.get("GH_REPO", "")
-
-_full_pipeline_state: dict = {"running": False, "step": "", "message": ""}
-
-
-def _get_gh_auth() -> tuple[str, str]:
-    """GitHub token + repo를 환경변수 또는 gh CLI에서 가져온다."""
-    token = _GH_TOKEN
-    repo = _GH_REPO
-
-    if not token:
-        try:
-            result = subprocess.run(
-                ["gh", "auth", "token"], capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                token = result.stdout.strip()
-        except Exception:
-            pass
-
-    if not repo:
-        try:
-            result = subprocess.run(
-                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-                capture_output=True, text=True, timeout=5,
-                cwd=str(ROOT),
-            )
-            if result.returncode == 0:
-                repo = result.stdout.strip()
-        except Exception:
-            pass
-
-    return token, repo
-
-
-def _trigger_workflow(token: str, repo: str, workflow: str, inputs: dict) -> Optional[str]:
-    """GitHub Actions workflow_dispatch 트리거. run_id URL 반환."""
-    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    body = {"ref": "master", "inputs": inputs}
-
-    with httpx.Client(timeout=10) as client:
-        resp = client.post(url, headers=headers, json=body)
-        if resp.status_code == 204:
-            return f"https://github.com/{repo}/actions"
-        return None
-
-
-def _wait_for_workflows(token: str, repo: str, run_ids: list[int], timeout_sec: int = 600) -> dict:
-    """워크플로 실행 완료 대기. 상태 반환."""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    start = time.time()
-    with httpx.Client(timeout=15) as client:
-        while time.time() - start < timeout_sec:
-            all_done = True
-            statuses = {}
-            for rid in run_ids:
-                try:
-                    resp = client.get(
-                        f"https://api.github.com/repos/{repo}/actions/runs/{rid}",
-                        headers=headers,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        statuses[rid] = data.get("conclusion") or data.get("status", "unknown")
-                        if data.get("status") != "completed":
-                            all_done = False
-                except Exception:
-                    all_done = False
-            if all_done:
-                return statuses
-            time.sleep(15)
-    return {"timeout": True}
-
-
-def _get_latest_run_ids(token: str, repo: str, workflows: list[str]) -> list[int]:
-    """각 워크플로의 최신 실행 ID를 가져온다."""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    ids = []
-    with httpx.Client(timeout=10) as client:
-        for wf in workflows:
-            try:
-                resp = client.get(
-                    f"https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs",
-                    headers=headers,
-                    params={"per_page": 1, "branch": "master"},
-                )
-                if resp.status_code == 200:
-                    runs = resp.json().get("workflow_runs", [])
-                    if runs:
-                        ids.append(runs[0]["id"])
-            except Exception:
-                pass
-    return ids
-
-
-@app.post("/api/full-pipeline/{product_key}")
-async def start_full_pipeline(product_key: str):
-    """원클릭: GitHub Actions 크롤링 트리거 -> DB 적재 대기 -> Claude 분석 -> 보고서 생성."""
-    if _full_pipeline_state["running"]:
-        raise HTTPException(409, "이미 전체 파이프라인 실행 중")
-
-    drug = _registry.get_drug(product_key)
-    if not drug:
-        raise HTTPException(404, f"품목 '{product_key}' 없음")
-
-    token, repo = _get_gh_auth()
-    if not token or not repo:
-        raise HTTPException(503, "GitHub 인증 정보 없음 (gh auth login 필요)")
-
-    _full_pipeline_state["running"] = True
-    _full_pipeline_state["step"] = "trigger"
-    _full_pipeline_state["message"] = "GitHub Actions 트리거 중..."
-
-    async def _full_bg():
-        try:
-            # Step 1: GitHub Actions 크롤링 트리거
-            await _emit({"phase": "full-pipeline", "step": "trigger",
-                          "message": "GitHub Actions 워크플로 트리거 중..."})
-
-            workflows_to_run = [
-                ("sa_api_light.yml", {"toggle_id": "toggle_1", "dry_run": "false"}),
-                ("sa_retail_mid.yml", {"source_filter": "all"}),
-                ("sa_ai_search.yml", {"dry_run": "false"}),
-            ]
-
-            triggered = 0
-            for wf, inputs in workflows_to_run:
-                result = _trigger_workflow(token, repo, wf, inputs)
-                if result:
-                    triggered += 1
-                    await _emit({"phase": "full-pipeline", "step": "trigger",
-                                  "message": f"{wf} 트리거 완료"})
-                else:
-                    await _emit({"phase": "log", "message": f"{wf} 트리거 실패"})
-
-            if triggered == 0:
-                await _emit({"phase": "log", "message": "워크플로 트리거 실패"})
-                _full_pipeline_state["running"] = False
-                return
-
-            await _emit({"phase": "full-pipeline", "step": "trigger",
-                          "message": f"{triggered}개 워크플로 트리거 완료"})
-
-            # Step 2: 크롤링 완료 대기
-            _full_pipeline_state["step"] = "crawling"
-            _full_pipeline_state["message"] = "GitHub Actions 크롤링 대기 중..."
-            await _emit({"phase": "full-pipeline", "step": "crawling",
-                          "message": "Actions 러너에서 크롤링 진행 중... (최대 10분 대기)"})
-
-            await asyncio.sleep(5)
-            wf_files = [w[0] for w in workflows_to_run]
-            run_ids = _get_latest_run_ids(token, repo, wf_files)
-
-            if run_ids:
-                await _emit({"phase": "full-pipeline", "step": "crawling",
-                              "message": f"{len(run_ids)}개 워크플로 모니터링 중..."})
-
-                loop = asyncio.get_event_loop()
-                statuses = await loop.run_in_executor(
-                    None, _wait_for_workflows, token, repo, run_ids, 600
-                )
-
-                success_count = sum(1 for v in statuses.values() if v == "success")
-                await _emit({"phase": "full-pipeline", "step": "crawling",
-                              "message": f"크롤링 완료: {success_count}/{len(run_ids)} 성공"})
-            else:
-                await _emit({"phase": "log", "message": "워크플로 실행 ID를 찾을 수 없음, 60초 대기"})
-                await asyncio.sleep(60)
-
-            # Step 3: Claude 분석
-            _full_pipeline_state["step"] = "analyze"
-            _full_pipeline_state["message"] = "Claude 분석 중..."
-            await _emit({"phase": "full-pipeline", "step": "analyze",
-                          "message": f"[{drug.trade_name}] Claude 분석 시작"})
-
-            analysis = _analyze_single_product(drug, use_perplexity=True)
-            verdict = analysis.get("verdict", "분석실패")
-            await _emit({"phase": "full-pipeline", "step": "analyze",
-                          "message": f"분석 완료: {verdict}"})
-
-            # Step 4: 참고문헌
-            _full_pipeline_state["step"] = "refs"
-            refs = _fetch_references(drug)
-            await _emit({"phase": "full-pipeline", "step": "refs",
-                          "message": f"참고문헌 {len(refs)}건 수집"})
-
-            # 결과 저장 (보고서는 별도 버튼으로 분리)
-            _pipeline_tasks[product_key] = {
-                "status": "done",
-                "step": "done",
-                "step_label": "완료",
-                "result": analysis,
-                "refs": refs,
-                "pdf": None,
-                "started_at": time.time(),
-            }
-
-            _full_pipeline_state["step"] = "done"
-            _full_pipeline_state["message"] = "전체 파이프라인 완료"
-            await _emit({"phase": "full-pipeline", "step": "done",
-                          "message": "크롤링 + 분석 완료 ✓ (보고서는 별도 생성)"})
-
-        except Exception as e:
-            await _emit({"phase": "log", "message": f"전체 파이프라인 오류: {e}"})
-            _full_pipeline_state["step"] = "error"
-            _full_pipeline_state["message"] = str(e)[:200]
-        finally:
-            _full_pipeline_state["running"] = False
-
-    asyncio.create_task(_full_bg())
-    return {"status": "started", "product_key": product_key, "repo": repo}
-
-
-@app.get("/api/full-pipeline/status")
-async def get_full_pipeline_status():
-    return _full_pipeline_state
-
-
-@app.post("/api/trigger-crawl")
-async def trigger_crawl_only():
-    """GitHub Actions 크롤링만 트리거 (분석 없이)."""
-    token, repo = _get_gh_auth()
-    if not token or not repo:
-        raise HTTPException(503, "GitHub 인증 정보 없음")
-
-    results = {}
-    workflows = [
-        ("sa_api_light.yml", {"toggle_id": "toggle_1", "dry_run": "false"}),
-        ("sa_retail_mid.yml", {"source_filter": "all"}),
-        ("sa_ai_search.yml", {"dry_run": "false"}),
-    ]
-    for wf, inputs in workflows:
-        url = _trigger_workflow(token, repo, wf, inputs)
-        results[wf] = "triggered" if url else "failed"
-        if url:
-            await _emit({"phase": "crawl-trigger", "message": f"{wf} 트리거 완료"})
-
-    return {"status": "triggered", "workflows": results, "actions_url": f"https://github.com/{repo}/actions"}
-
-
 def _generate_report_for_pipeline(
     drug: TargetDrug,
     analysis: dict,
@@ -1180,7 +1167,37 @@ def _generate_report_for_pipeline(
                 "search_duration_sec": 0,
             }
 
-        output_path = generate_report(drug, report_data)
+        dur = 0.0
+        if search_data and isinstance(search_data, dict):
+            try:
+                dur = float(search_data.get("search_duration_sec") or 0)
+            except (TypeError, ValueError):
+                dur = 0.0
+
+        report_meta = {
+            "collection_finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "collection_method": os.environ.get(
+                "REPORT_COLLECTION_METHOD",
+                "L1 정적 seed (사용자 검증) + L2 조건부 크롤러",
+            ),
+            "freshness_note": os.environ.get(
+                "REPORT_FRESHNESS_NOTE",
+                "Phase 2 로드맵 — 해법 C (AI 2단계 게이트)",
+            ),
+            "llm_body_note": os.environ.get(
+                "REPORT_LLM_BODY_NOTE",
+                "규칙 기반 템플릿 + Claude Haiku 분석",
+            ),
+            "search_duration_sec": dur,
+        }
+
+        output_path = generate_report(
+            drug,
+            report_data,
+            analysis=analysis,
+            refs=refs or [],
+            report_meta=report_meta,
+        )
         return output_path.name
     except Exception as e:
         logger.warning("보고서 생성 실패 [%s]: %s", drug.id, e)
@@ -1220,10 +1237,13 @@ async def create_report(run_analysis: bool = Query(False)):
 async def get_report_status():
     reports_dir = ROOT / "reports"
     pdf_count = len(list(reports_dir.glob("*.docx"))) if reports_dir.exists() else 0
+    latest = _report_cache.get("latest_pdf")
     return {
         "running": _report_cache["running"],
-        "latest_pdf": _report_cache.get("latest_pdf"),
+        "latest_pdf": latest,
+        "latest_report": latest,
         "pdf_count": pdf_count,
+        "report_count": pdf_count,
     }
 
 
@@ -1282,9 +1302,9 @@ async def get_macro():
     sb = _get_supabase()
     if sb:
         try:
-            resp = sb.table("products").select("price, trade_name", count="exact").eq("country", "SA").not_.is_("price", "null").execute()
+            resp = sb.table("products").select("price_local, trade_name", count="exact").eq("country", "SA").not_.is_("price_local", "null").execute()
             count = resp.count or 0
-            prices = [float(r["price"]) for r in (resp.data or []) if r.get("price")]
+            prices = [float(r["price_local"]) for r in (resp.data or []) if r.get("price_local") is not None]
             return {
                 "total_products": count,
                 "total_sources": len(SITES),
@@ -1444,7 +1464,7 @@ async def get_perplexity_result():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# DB 크롤링 통계 (GitHub Actions 결과)
+# DB 크롤링 통계 (Supabase 적재분)
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/db-stats")
@@ -1455,8 +1475,11 @@ async def get_db_stats():
         return {"connected": False, "message": "Supabase 미연결", "stats": {}}
 
     try:
-        # 소스별 건수
-        resp = sb.table("products").select("source_name, price, active_ingredient, trade_name").eq("country", "SA").execute()
+        # 소스별 건수 — 컬럼 목록 최소화 후 실패 시 * (배포 스키마 차이)
+        try:
+            resp = sb.table("products").select("source_name, price_local, trade_name").eq("country", "SA").limit(8000).execute()
+        except Exception:
+            resp = sb.table("products").select("*").eq("country", "SA").limit(8000).execute()
         rows = resp.data or []
 
         source_stats: dict[str, dict] = {}
@@ -1465,7 +1488,7 @@ async def get_db_stats():
             sn = r.get("source_name", "unknown")
             source_stats.setdefault(sn, {"count": 0, "with_price": 0})
             source_stats[sn]["count"] += 1
-            if r.get("price"):
+            if _row_price_local(r) is not None:
                 source_stats[sn]["with_price"] += 1
                 total_with_price += 1
 
@@ -1499,6 +1522,148 @@ async def get_dashboard_data():
     if not json_path.exists():
         raise HTTPException(404, "dashboard_data.json 없음")
     return JSONResponse(json.loads(json_path.read_text(encoding="utf-8")))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 프론트엔드 호환: 환율 · API 키 상태 · 뉴스 (dashboard UI)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ── 환율 캐시 (yfinance 레이트 리밋 회피) ──────────────────────────
+#   버튼을 빠르게 연타해도 1분 이내엔 캐시된 값을 반환.
+_exchange_cache: dict = {
+    "data": None,       # 마지막 성공 응답
+    "fetched_at": 0.0,  # epoch seconds
+    "ttl": 60.0,        # 1분 (fast_info 호출 횟수 제어)
+}
+
+# Fallback 근사값 — yfinance 전체 실패 시 사용 (서버가 죽지 않도록)
+_EXCHANGE_FALLBACK = {
+    "sar_krw": 392.64,   # USD/KRW 1472 ÷ USD/SAR 3.7515 기준 근사
+    "usd_krw": 1472.0,
+    "sar_usd": 0.2667,   # SAR 은 1 USD = 3.75 SAR 페그 고정
+}
+
+
+def _fetch_exchange_rates() -> dict:
+    """yfinance 로 실시간 환율 조회.
+
+    ─ Yahoo Finance 에 SARKRW=X 티커가 존재하지 않으므로, SAR 이 USD 페그
+      (1 USD ≈ 3.75 SAR)라는 점을 활용해 USD 를 경유해 역산한다.
+
+        SAR/KRW = USD/KRW ÷ USD/SAR
+
+    ─ 한 번이라도 실패하면 캐시된 직전 성공 값 → fallback 근사값 순으로
+      degrade 하여 UI 는 항상 숫자를 받는다.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        logger.warning("yfinance 미설치 — fallback 값 반환")
+        return {**_EXCHANGE_FALLBACK, "source": "fallback", "ok": False}
+
+    try:
+        usd_krw = float(yf.Ticker("USDKRW=X").fast_info.last_price)
+        usd_sar = float(yf.Ticker("USDSAR=X").fast_info.last_price)
+        if usd_krw <= 0 or usd_sar <= 0:
+            raise ValueError(f"비정상 시세: USD/KRW={usd_krw}, USD/SAR={usd_sar}")
+
+        sar_krw = usd_krw / usd_sar           # 파생: 1 SAR = ? KRW
+        sar_usd = 1.0 / usd_sar               # 파생: 1 SAR = ? USD
+        return {
+            "ok": True,
+            "sar_krw": round(sar_krw, 2),
+            "usd_krw": round(usd_krw, 2),
+            "sar_usd": round(sar_usd, 4),
+            "source": "yfinance",
+        }
+    except Exception as e:
+        logger.warning("yfinance 환율 조회 실패: %s", e)
+        # 이전 캐시가 있으면 캐시값, 없으면 fallback
+        if _exchange_cache["data"]:
+            return {**_exchange_cache["data"], "source": "cache_stale"}
+        return {**_EXCHANGE_FALLBACK, "source": "fallback", "ok": False}
+
+
+@app.get("/api/exchange")
+async def api_exchange():
+    """대시보드 환율 카드 — yfinance 실시간 시세 (1분 캐시).
+
+    반환 필드 (app.js loadExchange 가 소비):
+      - sar_krw : 1 SAR 당 원화 (메인 숫자)
+      - usd_krw : 1 USD 당 원화 (서브)
+      - sar_usd : 1 SAR 당 USD (서브)
+      - source  : yfinance | cache | cache_stale | fallback
+    """
+    now = time.time()
+    cached = _exchange_cache["data"]
+    if cached and (now - _exchange_cache["fetched_at"] < _exchange_cache["ttl"]):
+        return {**cached, "source": "cache"}
+
+    # 동기 I/O (yfinance) — 스레드로 밀어 이벤트 루프 보호
+    data = await asyncio.to_thread(_fetch_exchange_rates)
+
+    # 성공 응답만 캐시
+    if data.get("ok") and data.get("source") == "yfinance":
+        _exchange_cache["data"] = data
+        _exchange_cache["fetched_at"] = now
+
+    return data
+
+
+@app.get("/api/keys/status")
+async def api_keys_status():
+    llm = _get_llm()
+    return {
+        "claude": llm is not None,
+        "perplexity": _perplexity_key_configured(),
+    }
+
+
+@app.get("/api/news")
+async def api_news():
+    """시장 뉴스 카드. DB 소스가 있으면 사용, 없으면 안내용 항목."""
+    items: list[dict] = []
+    sb = _get_supabase()
+    if sb:
+        try:
+            resp = (
+                sb.table("ai_discovered_sources")
+                .select("title,url,source,crawled_at")
+                .eq("country", "SA")
+                .order("crawled_at", desc=True)
+                .limit(12)
+                .execute()
+            )
+            for row in resp.data or []:
+                t = row.get("title") or row.get("url") or "Source"
+                u = row.get("url") or ""
+                items.append(
+                    {
+                        "title": str(t)[:200],
+                        "link": str(u) if u else "",
+                        "source": str(row.get("source") or "DB"),
+                        "date": str(row.get("crawled_at") or "")[:10],
+                    }
+                )
+        except Exception:
+            pass
+    if not items:
+        items = [
+            {
+                "title": "SFDA — Saudi Food & Drug Authority",
+                "link": "https://www.sfda.gov.sa/en",
+                "source": "SFDA",
+                "date": "",
+            },
+            {
+                "title": "Vision 2030 — Healthcare & life sciences",
+                "link": "https://www.vision2030.gov.sa",
+                "source": "Vision 2030",
+                "date": "",
+            },
+        ]
+    return {"ok": True, "items": items}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

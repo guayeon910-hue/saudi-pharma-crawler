@@ -200,18 +200,19 @@ inn_normalizer.normalize()     inn_normalizer.normalize()
 outlier_detector.check()       (이상치 검사)
      │                               │
      ▼                               ▼
-SourceReputation.update()      confidence = 0.5 (AI 기본)
+SourceReputation.update()      confidence 가변 (INN 매칭 반영)
      │                               │
      ▼                               ▼
-┌─── saudi_products ───┐     ┌── ai_discovered_products ──┐
-│  upsert by           │     │  insert                     │
-│  product_id          │     │  source = ai_discovered:xxx │
-└──────────────────────┘     └─────────────────────────────┘
+┌─── products ─────────┐     ┌── (선택) ai_discovered_products ─┐
+│  upsert by           │     │  레거시/감사용 — 현재 ai_search는  │
+│  product_id          │     │  `products`에 source_name=       │
+│  (고정 크롤러·AI 공통) │     │  ai_discovered 로 upsert        │
+└──────────────────────┘     └───────────────────────────────────┘
 ```
 
 ## 4-1. 12개국 통일 스키마 (✅ 적용 완료)
 
-> 상세 설계: [team_schema.md](team_schema.md)
+> 상세 설계: `team-kit/sql/01_products.sql` 참고.
 
 사우디 전용 테이블(`saudi_*`)과 별도로, 12개국 데이터를 통합 관리하는 테이블이 적용되어 있다.
 
@@ -230,13 +231,20 @@ SourceReputation.update()      confidence = 0.5 (AI 기본)
 
 사우디 소스 10개가 시드 데이터로 등록 완료. 다른 국가 팀원은 자기 소스만 INSERT하면 됨.
 
-## 5. 적용 상태
+## 5. 새 Supabase 프로젝트에 스키마 넣기 (필수)
+
+런타임 크롤러는 **`products`**(통합) + **`assets/sql/state_tables.sql`** 의 `saudi_*` 테이블을 사용한다.  
+한 번에 적용하려면 SQL Editor에서 **`assets/sql/supabase_bootstrap.sql`** 전체를 실행한다 (`team-kit/sql/01_products.sql` + state + 마이그레이션 + `04_auxiliary_tables.sql`).
+
+- `upsert(..., on_conflict=product_id)` 는 **`product_id`에 UNIQUE 인덱스**가 있어야 동작한다 (`01_products.sql` 끝에 포함됨).
+- 적재 확인: `python scripts/verify_supabase.py`
+
+레거시 **`saudi_products`**(`assets/sql/schema.sql`)만 있으면 현재 크롤러는 **`products`에 쓰지 않으므로** Table Editor에서 비어 보일 수 있다.
+
+## 6. 적용 상태 (참고)
 
 ```
-✅ 1. 사우디 전용 스키마 — schema.sql + state_tables.sql (Supabase에 적용 완료)
-✅ 2. 12개국 통일 스키마 — products, sources 등 8테이블 (Supabase에 적용 완료)
-✅ 3. 사우디 소스 시드 데이터 — sources 테이블에 10개 등록 완료
-→ 4. 환경변수 설정: .env 파일에 SUPABASE_URL, SUPABASE_SERVICE_KEY
-→ 5. GitHub Actions secrets에 동일 값 등록
-→ 6. 워크플로 실행 → 데이터 적재 시작
+→ 1. supabase_bootstrap.sql 실행 (또는 위 파일들을 순서대로)
+→ 2. .env / GitHub Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY
+→ 3. 워크플로 실행 → products 등에 적재
 ```

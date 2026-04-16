@@ -312,7 +312,7 @@ def map_nahdi_to_schema(product: dict, *, source_url: str) -> dict[str, Any]:
         pid = f"NAHDI_{sku}"
     else:
         import hashlib
-        name_hash = hashlib.md5(name.encode()).hexdigest()[:12]
+        name_hash = hashlib.sha256(name.encode()).hexdigest()[:16]
         pid = f"NAHDI_{name_hash}"
 
     price = product.get("price")
@@ -355,7 +355,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
       - delay: 요청 간격 초 (기본 2.0, 소매 사이트 보수적)
     """
     inserted = 0
-    updated = 0
+    updated = 0  # NOTE: Supabase upsert does not distinguish insert vs update; always 0.
     skipped = 0
 
     keywords = cfg.get("keywords", [
@@ -420,7 +420,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
 
                     # 소스 신뢰도 보정
                     bonus = reputation.confidence_bonus("nahdi_web")
-                    record["confidence"] = min(1.0, max(0.0, (record.get("confidence") or 0.75) + bonus))
+                    record["confidence"] = min(0.99, max(0.0, (record.get("confidence") or 0.75) + bonus))
 
                     if not dry_run:
                         try:

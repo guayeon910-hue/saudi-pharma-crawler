@@ -34,7 +34,7 @@ DEFAULT_MODEL = MODEL_HAIKU  # 비용 최적: 대부분 Haiku로 충분
 
 # 정책: Sonnet 호출 원천 차단 (사용자 제약 - 토큰 소비 최소화)
 # ENFORCE_HAIKU_ONLY=0 으로 명시 해제하지 않는 한 모든 Sonnet 호출을 Haiku로 강제 전환.
-_ENFORCE_HAIKU = os.getenv("ENFORCE_HAIKU_ONLY", "1") == "1"
+# 임포트 시점이 아닌 호출 시점에 평가 → 테스트/환경변수 변경 후 즉시 반영.
 
 # ---------------------------------------------------------------------------
 # 토큰 사용량 추적
@@ -77,15 +77,36 @@ class LLMResponse:
     stop_reason: str
 
     def parse_json(self) -> Any:
-        """응답 텍스트에서 JSON 추출. 마크다운 코드블록도 처리."""
+        """응답 텍스트에서 JSON 추출.
+
+        - 마크다운 코드블록
+        - 본문 앞 설명문
+        - **JSON 직후 추가 문장** (json.loads → ``Extra data`` 오류) — `raw_decode`로 첫 값만 사용
+        """
         text = self.text.strip()
-        # ```json ... ``` 블록 처리
         if text.startswith("```"):
             lines = text.split("\n")
-            # 첫 줄(```json)과 마지막 줄(```) 제거
             inner = "\n".join(lines[1:-1]) if len(lines) > 2 else ""
-            return json.loads(inner)
-        return json.loads(text)
+            text = inner.strip()
+
+        decoder = json.JSONDecoder()
+        s = text.lstrip()
+        i = 0
+        while i < len(s) and s[i] not in "{[":
+            i += 1
+        if i >= len(s):
+            raise json.JSONDecodeError("Expecting value", s, 0)
+        try:
+            obj, _ = decoder.raw_decode(s[i:])
+            return obj
+        except json.JSONDecodeError:
+            start = s.find("{")
+            end = s.rfind("}")
+            if start >= 0 and end > start:
+                chunk = s[start : end + 1]
+                obj, _ = decoder.raw_decode(chunk)
+                return obj
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +195,8 @@ class ClaudeClient:
         model = model or self._default_model
         max_tokens = max_tokens or self._default_max_tokens
 
-        # Haiku 강제 가드: Sonnet 혹은 그 외 모델 지정 시 Haiku로 치환
-        if _ENFORCE_HAIKU and model != MODEL_HAIKU:
+        # Haiku 강제 가드: Sonnet 혹은 그 외 모델 지정 시 Haiku로 치환 (호출 시점마다 평가)
+        if os.getenv("ENFORCE_HAIKU_ONLY", "1") == "1" and model != MODEL_HAIKU:
             logger.warning("Sonnet 호출 감지(%s) -> Haiku 강제 전환", model)
             model = MODEL_HAIKU
 

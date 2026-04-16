@@ -113,3 +113,6 @@ comment on column products.price_local is
 
 comment on column products.raw_payload is
   'API JSON 응답 OK. HTML 전문 저장 금지 (저작권). 나라별 확장 필드도 여기에';
+
+-- PostgREST upsert(..., on_conflict=product_id) 에 필수 (UNIQUE)
+create unique index if not exists idx_products_product_id_unique on products (product_id);

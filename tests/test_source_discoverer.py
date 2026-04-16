@@ -167,7 +167,11 @@ class TestDDGParsing(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestEvaluateSource(unittest.TestCase):
-    def test_high_relevance(self):
+    """캐시 I/O를 항상 패치하여 실제 파일 시스템과 격리."""
+
+    @patch("assets.snippets.source_discoverer._save_domain_cache")
+    @patch("assets.snippets.source_discoverer._load_domain_cache", return_value={})
+    def test_high_relevance(self, _mock_load, _mock_save):
         mock_llm = MagicMock()
         mock_llm.ask_json.return_value = {
             "relevance_score": 0.85,
@@ -191,7 +195,9 @@ class TestEvaluateSource(unittest.TestCase):
         self.assertEqual(source.category, "pharma_retailer")
         self.assertTrue(source.has_price_data)
 
-    def test_low_relevance(self):
+    @patch("assets.snippets.source_discoverer._save_domain_cache")
+    @patch("assets.snippets.source_discoverer._load_domain_cache", return_value={})
+    def test_low_relevance(self, _mock_load, _mock_save):
         mock_llm = MagicMock()
         mock_llm.ask_json.return_value = {
             "relevance_score": 0.2,
@@ -213,7 +219,9 @@ class TestEvaluateSource(unittest.TestCase):
         self.assertFalse(source.is_valid)
         self.assertIn("Low relevance", source.rejection_reason)
 
-    def test_llm_error_handling(self):
+    @patch("assets.snippets.source_discoverer._save_domain_cache")
+    @patch("assets.snippets.source_discoverer._load_domain_cache", return_value={})
+    def test_llm_error_handling(self, _mock_load, _mock_save):
         mock_llm = MagicMock()
         mock_llm.ask_json.side_effect = Exception("API timeout")
 
@@ -234,11 +242,15 @@ class TestEvaluateSource(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestDiscoverSources(unittest.TestCase):
+    @patch("assets.snippets.source_discoverer._save_domain_cache")
+    @patch("assets.snippets.source_discoverer._load_domain_cache", return_value={})
     @patch("assets.snippets.source_discoverer.fetch_search_results")
     @patch("assets.snippets.source_discoverer.fetch_page_html")
     @patch("assets.snippets.source_discoverer.time")
-    def test_full_pipeline(self, mock_time, mock_fetch_html, mock_fetch_search):
-        mock_time.time.side_effect = [0.0, 10.0]  # start, end
+    def test_full_pipeline(self, mock_time, mock_fetch_html, mock_fetch_search,
+                           _mock_load, _mock_save):
+        # time.time() 호출 순서: start, pharma.sa 캐시 저장 ts, news.com 캐시 저장 ts, end
+        mock_time.time.side_effect = [0.0, 1.0, 2.0, 10.0]
         mock_time.sleep = MagicMock()
 
         # Mock LLM
@@ -467,12 +479,16 @@ class TestDiscoverSourcesPerplexity(unittest.TestCase):
         self.assertEqual(len(result.valid_sources), 1)
         self.assertEqual(result.valid_sources[0].domain, "dist.sa")
 
+    @patch("assets.snippets.source_discoverer._save_domain_cache")
+    @patch("assets.snippets.source_discoverer._load_domain_cache", return_value={})
     @patch("assets.snippets.source_discoverer.fetch_search_results")
     @patch("assets.snippets.source_discoverer.fetch_page_html")
     @patch("assets.snippets.source_discoverer.time")
-    def test_no_pplx_client_uses_ddg(self, mock_time, mock_fetch_html, mock_fetch_search):
+    def test_no_pplx_client_uses_ddg(self, mock_time, mock_fetch_html, mock_fetch_search,
+                                     _mock_load, _mock_save):
         """pplx_client=None이면 기존 DDG 동작 그대로."""
-        mock_time.time.side_effect = [0.0, 5.0]
+        # time.time() 호출 순서: start, ddg-only.sa 캐시 저장 ts, end
+        mock_time.time.side_effect = [0.0, 1.0, 5.0]
         mock_time.sleep = MagicMock()
 
         mock_llm = MagicMock()

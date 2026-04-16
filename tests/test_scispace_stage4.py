@@ -80,7 +80,7 @@ for item in mock_items:
 
     # 소스 신뢰도 보정
     bonus = reputation.confidence_bonus("sfda_web")
-    record["confidence"] = min(1.0, max(0.0, (record.get("confidence") or 0.92) + bonus))
+    record["confidence"] = min(0.99, max(0.0, (record.get("confidence") or 0.92) + bonus))
 
     # 정상이면 가격 누적
     price = record.get("price_local")

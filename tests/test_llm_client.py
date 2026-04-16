@@ -81,6 +81,22 @@ class TestLLMResponse(unittest.TestCase):
         data = r.parse_json()
         self.assertEqual(data, [1, 2, 3])
 
+    def test_parse_json_extra_data_after_object(self):
+        """Claude가 JSON 뒤에 한글 설명을 붙이면 json.loads는 Extra data로 실패한다."""
+        text = (
+            '{"verdict": "조건부", "confidence": 0.5, "rationale": "test", '
+            '"key_factors": [], "estimated_price_range": null}\n\n'
+            "위는 참고용입니다."
+        )
+        r = LLMResponse(
+            text=text,
+            input_tokens=10, output_tokens=200,
+            model="test", stop_reason="end_turn",
+        )
+        data = r.parse_json()
+        self.assertEqual(data["verdict"], "조건부")
+        self.assertEqual(data["confidence"], 0.5)
+
 
 class TestClaudeClient(unittest.TestCase):
     def test_model_constants(self):

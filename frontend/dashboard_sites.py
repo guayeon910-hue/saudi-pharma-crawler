@@ -1,7 +1,7 @@
 """
 dashboard_sites.py — 크롤링 사이트 메타 정의 + 초기 상태 유틸
 
-GitHub Actions로 실행되는 10개 사우디 소스의 UI 표시 정보를 관리한다.
+대시보드에 표시할 사우디 소스(현재 6개)의 키·이름·카테고리 등 UI 메타를 정의한다.
 """
 
 from __future__ import annotations
@@ -19,13 +19,6 @@ SITES: list[dict] = [
         "name": "NUPCO",
         "domain": "nupco.com",
         "hint": "국영 조달 입찰",
-        "category": "공공조달",
-    },
-    {
-        "key": "etimad_api",
-        "name": "Etimad",
-        "domain": "etimad.sa",
-        "hint": "전자조달 플랫폼",
         "category": "공공조달",
     },
     {
@@ -54,27 +47,6 @@ SITES: list[dict] = [
         "name": "Whites",
         "domain": "whites.sa",
         "hint": "소매 약국",
-        "category": "민간",
-    },
-    {
-        "key": "al_dawaa_web",
-        "name": "Al-Dawaa",
-        "domain": "al-dawaa.com",
-        "hint": "소매 약국 체인",
-        "category": "민간",
-    },
-    {
-        "key": "tamer_group",
-        "name": "Tamer Group",
-        "domain": "tamergroup.com",
-        "hint": "유통/도매",
-        "category": "민간",
-    },
-    {
-        "key": "noon_saudi",
-        "name": "Noon",
-        "domain": "noon.com",
-        "hint": "이커머스 플랫폼",
         "category": "민간",
     },
 ]

@@ -324,6 +324,9 @@ def normalize_record(record: dict) -> dict:
     if "price_sar" in out:
         price = normalize_price_sar(out.get("price_sar"))
         out["price_sar"] = float(price) if price is not None else None
+    if "price_local" in out:
+        price_local = normalize_price_sar(out.get("price_local"))
+        out["price_local"] = float(price_local) if price_local is not None else None
     if "scientific_name" in out:
         out["scientific_name"] = normalize_scientific_name(out.get("scientific_name"))
 

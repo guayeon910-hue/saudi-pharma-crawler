@@ -29,6 +29,31 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / "assets" / "snippet
 from antibot import pick_ua
 from supabase_state import AuditLog, MetricsCollector, SourceReputation
 
+
+def _normalize_date(raw: str | None) -> str | None:
+    """공통 사우디 날짜 포맷 → ISO YYYY-MM-DD. 미인식 시 원문 반환.
+
+    DD/MM/YYYY를 사우디 행정 관례로 MM/DD/YYYY보다 우선 적용한다.
+    """
+    if not raw:
+        return raw
+    from datetime import datetime
+    formats = [
+        "%Y-%m-%d",   # ISO (pass-through)
+        "%d/%m/%Y",   # DD/MM/YYYY (사우디 행정 관례)
+        "%m/%d/%Y",   # MM/DD/YYYY
+        "%d-%m-%Y",
+        "%m-%d-%Y",
+        "%d/%m/%y",
+        "%m/%d/%y",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw.strip(), fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return raw
+
 import httpx
 
 logger = logging.getLogger("crawlers.nupco_tenders")
@@ -171,8 +196,8 @@ def map_tender_to_schema(tender: dict, *, source_url: str) -> dict[str, Any]:
         "source_url": tender.get("url", source_url),
         "title": tender.get("title"),
         "tender_number": tender.get("tender_number"),
-        "posting_date": tender.get("posting_date") or tender.get("date_iso"),
-        "closing_date": tender.get("closing_date"),
+        "posting_date": _normalize_date(tender.get("posting_date") or tender.get("date_iso")),
+        "closing_date": _normalize_date(tender.get("closing_date")),
         "pdf_urls": tender.get("pdf_urls", []),
         "market_segment": "tender",
         "confidence": 0.70,
@@ -189,7 +214,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
       - delay: 요청 간격 초 (기본 1.0)
     """
     inserted = 0
-    updated = 0
+    updated = 0  # NOTE: Supabase upsert does not distinguish insert vs update; always 0.
     skipped = 0
 
     max_pages = cfg.get("max_pages", 20)
@@ -209,6 +234,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
     logger.info(f"NUPCO 텐더 크롤링 시작 (max_pages={max_pages})")
 
     all_tenders: list[dict] = []
+    details_fetched = 0  # with 블록 밖에서 초기화 (네트워크 예외 시 NameError 방지)
 
     with NUPCOClient(delay=delay) as client:
         # 1단계: 텐더 목록 수집
@@ -216,7 +242,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
             t_page = time.time()
             try:
                 html = client.get_tender_list(page_num)
-            except httpx.HTTPStatusError as e:
+            except httpx.HTTPError as e:
                 logger.warning(f"텐더 목록 {page_num}페이지 실패: {e}")
                 break
 
@@ -238,7 +264,6 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
         logger.info(f"총 {len(all_tenders)}건 텐더 링크 수집")
 
         # 2단계: 상세 페이지 조회 (최신 max_details건)
-        details_fetched = 0
         for tender in all_tenders[:max_details]:
             try:
                 html = client.get_tender_detail(tender["url"])
@@ -260,7 +285,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
 
         # 소스 신뢰도 보정
         bonus = reputation.confidence_bonus("nupco_tenders")
-        record["confidence"] = min(1.0, max(0.0, record["confidence"] + bonus))
+        record["confidence"] = min(0.99, max(0.0, record["confidence"] + bonus))
 
         if not dry_run:
             try:

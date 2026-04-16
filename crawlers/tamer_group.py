@@ -103,7 +103,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
             }
 
             bonus = reputation.confidence_bonus("tamer_group")
-            record["confidence"] = min(1.0, max(0.0, record["confidence"] + bonus))
+            record["confidence"] = min(0.99, max(0.0, record["confidence"] + bonus))
 
             if not dry_run:
                 try:

@@ -1,9 +1,8 @@
 """
 ai_search.py — AI 자율 서칭 엔트리포인트
 
-GitHub Actions 워크플로에서 `python ai_search.py` 로 호출.
-고정 10개 소스 외에 AI가 자율적으로 추가 정보원을 탐색하고,
-발견된 소스에서 데이터를 추출한다.
+`python ai_search.py` 로 실행. 고정 크롤 소스 외에 AI가 추가 정보원을 탐색하고,
+발견된 사이트에서 데이터를 추출한다.
 
 환경변수:
   CLAUDE_API_KEY      (필수) Anthropic API 키
@@ -22,11 +21,11 @@ GitHub Actions 워크플로에서 `python ai_search.py` 로 호출.
      c) Phase C — 통합: normalize → INN 매칭 → 이상치 검사 → DB 적재
   3. 결과 요약 출력
 
-핵심 원칙: HTTP 요청은 Actions 러너에서만 실행.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -52,6 +51,8 @@ from assets.snippets.source_discoverer import (
     discover_sources,
     DiscoveryResult,
     DiscoveredSource,
+    fetch_page_html,
+    fetch_page_html_ex,
 )
 from assets.snippets.auto_scraper import (
     generate_action_sequence,
@@ -59,13 +60,46 @@ from assets.snippets.auto_scraper import (
     run_scraper,
     SynthesizedScraper,
 )
-from assets.snippets.source_discoverer import fetch_page_html
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("ai_search")
+
+# AI 자율 추출 → products 적재 시 고정 메타
+_AI_COUNTRY = "SA"
+_AI_CURRENCY = "SAR"
+_AI_SOURCE_NAME = "ai_discovered"
+_AI_SOURCE_TIER = 4
+_AI_MARKET_SEGMENT = "retail"
+
+_inn_norm_instance: Any = None
+_inn_norm_load_failed = False
+
+
+def _get_inn_normalizer() -> Any:
+    """WHO INN 정규화기 (지연 로드). 실패 시 None."""
+    global _inn_norm_instance, _inn_norm_load_failed
+    if _inn_norm_load_failed:
+        return None
+    if _inn_norm_instance is not None:
+        return _inn_norm_instance
+    try:
+        from inn_normalizer import INNNormalizer
+        n = INNNormalizer()
+        n.load_reference()
+        _inn_norm_instance = n
+        return n
+    except Exception as e:
+        logger.warning("INNNormalizer 로드 실패 — INN 필드 생략: %s", e)
+        _inn_norm_load_failed = True
+        return None
+
+
+def _stable_product_id(page_url: str, trade_name: str, scientific_name: str) -> str:
+    raw = f"{_AI_COUNTRY}|{_AI_SOURCE_NAME}|{page_url}|{trade_name}|{scientific_name}"
+    return "ai_discovered:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 # ---------------------------------------------------------------------------
@@ -130,50 +164,96 @@ def _normalize_records(
     records: list[dict],
     source_domain: str,
 ) -> list[dict]:
-    """추출된 레코드를 기존 파이프라인으로 정규화.
+    """추출 레코드를 `products` 테이블 upsert용 행으로 변환.
 
-    normalizer.py + inn_normalizer.py 재사용.
+    `normalizer`(가격·함량·제형) + 선택적 INN 매칭을 적용한다.
     """
     try:
-        from normalizer import normalize_strength, normalize_dosage_form
-        from inn_normalizer import INNNormalizer
-        inn_norm = INNNormalizer()
+        from normalizer import normalize_price_sar, normalize_strength, normalize_dosage_form, normalize_scientific_name
     except ImportError:
-        logger.warning("normalizer/inn_normalizer import 실패 — raw 데이터 반환")
-        return records
+        logger.warning("normalizer import 실패 — 저장 생략")
+        return []
 
-    normalized = []
+    inn_norm = _get_inn_normalizer()
+    out: list[dict] = []
+
     for rec in records:
         try:
-            # 표준 스키마로 매핑
-            norm = {
-                "product_name": rec.get("product_name", ""),
-                "price": rec.get("price", ""),
-                "manufacturer": rec.get("manufacturer", ""),
-                "active_ingredient": rec.get("active_ingredient", ""),
-                "strength": rec.get("strength", ""),
-                "source": f"ai_discovered:{source_domain}",
-                "source_url": rec.get("_source_domain", source_domain),
-                "confidence": 0.5,  # AI 발견 소스는 기본 낮은 신뢰도
+            page_url = (rec.get("_page_url") or "").strip()
+            if not page_url:
+                page_url = f"https://{source_domain}/"
+
+            pname = (rec.get("product_name") or rec.get("name") or "").strip()
+            sci_raw = (rec.get("active_ingredient") or rec.get("scientific_name") or "").strip()
+            trade_name = pname or sci_raw
+            if not trade_name:
+                logger.debug("AI 추출 행 스킵: 품목명 없음 (%s)", source_domain)
+                continue
+
+            price_raw = rec.get("price") or rec.get("price_sar") or rec.get("retail_price")
+            dec = normalize_price_sar(price_raw) if price_raw not in (None, "") else None
+            price_local = float(dec) if dec is not None else None
+
+            strength = normalize_strength(rec.get("strength")) if rec.get("strength") else None
+            dosage_form = normalize_dosage_form(rec.get("dosage_form")) if rec.get("dosage_form") else None
+            scientific_name = normalize_scientific_name(sci_raw) if sci_raw else None
+
+            inn_name: Optional[str] = None
+            inn_id: Optional[str] = None
+            inn_match_type: str = "none"
+            base_conf = 0.42
+            if sci_raw and inn_norm is not None:
+                ir = inn_norm.normalize(sci_raw)
+                if ir.success and ir.inn_name:
+                    inn_name = ir.inn_name
+                    inn_id = ir.inn_id
+                    inn_match_type = ir.match_type
+                    base_conf = min(0.92, max(0.08, base_conf + ir.confidence_bonus))
+
+            confidence = min(0.98, max(0.05, base_conf))
+
+            product_id = _stable_product_id(page_url, trade_name, scientific_name or "")
+
+            payload_keys = (
+                "product_name", "name", "price", "price_sar", "retail_price",
+                "manufacturer", "active_ingredient", "scientific_name",
+                "strength", "dosage_form",
+            )
+            slim = {k: rec.get(k) for k in payload_keys if k in rec and rec.get(k) not in (None, "")}
+
+            row: dict[str, Any] = {
+                "product_id": product_id,
+                "market_segment": _AI_MARKET_SEGMENT,
+                "fob_estimated_usd": None,
+                "confidence": confidence,
+                "country": _AI_COUNTRY,
+                "currency": _AI_CURRENCY,
+                "regulatory_id": None,
+                "trade_name": trade_name[:500],
+                "scientific_name": scientific_name,
+                "strength": strength,
+                "dosage_form": dosage_form,
+                "price_local": price_local,
+                "manufacturer_or_marketing_company": (rec.get("manufacturer") or "")[:500] or None,
+                "agent_or_supplier": None,
+                "atc_code": None,
+                "inn_name": inn_name,
+                "inn_id": inn_id,
+                "inn_match_type": inn_match_type,
+                "source_url": page_url[:2000],
+                "source_tier": _AI_SOURCE_TIER,
+                "source_name": _AI_SOURCE_NAME,
+                "raw_payload": {"ai_extract": slim, "source_domain": source_domain},
+                "outlier_flagged": False,
+                "anomaly_reason": None,
+                "toggle_id": None,
             }
-
-            # strength 정규화
-            if norm["strength"]:
-                norm["strength_normalized"] = normalize_strength(norm["strength"])
-
-            # INN 매칭
-            if norm["active_ingredient"]:
-                inn_result = inn_norm.normalize(norm["active_ingredient"])
-                if inn_result:
-                    norm["inn_name"] = inn_result
-
-            normalized.append(norm)
+            out.append(row)
 
         except Exception as e:
             logger.debug("레코드 정규화 실패: %s", e)
-            normalized.append(rec)
 
-    return normalized
+    return out
 
 
 def _store_records(
@@ -181,18 +261,27 @@ def _store_records(
     sb_client,
     dry_run: bool = False,
 ) -> int:
-    """정규화된 레코드를 Supabase에 저장."""
+    """`products` 테이블에 upsert (기존 ai_discovered_products 전용 insert 대체)."""
     if dry_run or not sb_client:
         logger.info("DRY_RUN: %d건 저장 생략", len(records))
         return 0
 
     stored = 0
-    for rec in records:
+    for row in records:
         try:
-            sb_client.table("ai_discovered_products").insert(rec).execute()
+            sb_client.table("products").upsert(row, on_conflict="product_id").execute()
             stored += 1
         except Exception as e:
-            logger.debug("DB 저장 실패: %s", e)
+            err_s = str(e).lower()
+            logger.warning("products upsert 실패 product_id=%s: %s", row.get("product_id"), e)
+            # 일부 Supabase 배포는 `scientific_name` 컬럼이 없음 — 해당 키만 제거 후 재시도
+            if "scientific_name" in err_s and "does not exist" in err_s:
+                slim = {k: v for k, v in row.items() if k != "scientific_name"}
+                try:
+                    sb_client.table("products").upsert(slim, on_conflict="product_id").execute()
+                    stored += 1
+                except Exception as e2:
+                    logger.warning("products upsert 재시도 실패 product_id=%s: %s", row.get("product_id"), e2)
 
     return stored
 
@@ -242,9 +331,9 @@ def _recrawl_source(
     result = {"url": url, "domain": domain, "records": 0, "success": False, "error": None}
 
     try:
-        html = fetch_page_html(url, http_client=http)
+        html, fetch_err = fetch_page_html_ex(url, http_client=http)
         if not html:
-            result["error"] = "HTML fetch failed"
+            result["error"] = f"HTML fetch failed: {fetch_err}"
             _update_source_failure(sb_client, source_id, source_row)
             return result
 
@@ -258,6 +347,8 @@ def _recrawl_source(
 
         records = run_scraper(scraper, html)
         if records:
+            for r in records:
+                r["_page_url"] = url
             normalized = _normalize_records(records, domain)
             _store_records(normalized, sb_client, dry_run=dry_run)
             result["records"] = len(records)
@@ -432,9 +523,9 @@ def process_one_drug(
     for source in discovery.valid_sources:
         try:
             # HTML 다시 가져오기 (Phase A에서 이미 가져왔지만 전체 HTML 필요)
-            html = fetch_page_html(source.url, http_client=http)
+            html, fetch_err = fetch_page_html_ex(source.url, http_client=http)
             if not html:
-                result.errors.append(f"HTML fetch failed: {source.url}")
+                result.errors.append(f"HTML fetch failed: {source.url} ({fetch_err})")
                 continue
 
             # XPath Action Sequence 생성
@@ -453,6 +544,8 @@ def process_one_drug(
             # 데이터 추출
             records = run_scraper(scraper, html)
             if records:
+                for r in records:
+                    r["_page_url"] = source.url
                 all_records.extend(records)
                 logger.info(
                     "[%s] %s: %d건 추출",
@@ -503,27 +596,35 @@ def process_one_drug(
 
 
 # ---------------------------------------------------------------------------
-# 메인 엔트리포인트
+# 메인 엔트리포인트 (CLI · FastAPI 공용)
 # ---------------------------------------------------------------------------
 
-def main() -> int:
-    """AI 자율 서칭 메인 함수. exit code 반환."""
-    start = time.time()
+def run_ai_search_session(
+    drug_ids: Optional[list[str]] = None,
+    dry_run: bool = False,
+    max_queries: int = 5,
+    fetch_delay: float = 2.0,
+    save_json: bool = True,
+) -> dict[str, Any]:
+    """AI 자율 서칭 전체 실행. `drug_ids`가 None이면 레지스트리 전체.
 
-    # 환경변수
+    배포 시 대시보드( FastAPI )에서 `asyncio.to_thread`로 호출한다.
+    반환 dict: ok, error, exit_code, summary_dict, recrawl_stats
+    """
+    start = time.time()
     api_key = os.environ.get("CLAUDE_API_KEY", "")
     supabase_url = os.environ.get("SUPABASE_URL", "")
     supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
-    drug_id = os.environ.get("DRUG_ID", "")
-    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
-    max_queries = int(os.environ.get("MAX_QUERIES", "5"))
-    fetch_delay = float(os.environ.get("FETCH_DELAY", "2.0"))
 
     if not api_key:
-        logger.error("CLAUDE_API_KEY 미설정 — AI 자율 서칭 불가")
-        return 1
+        return {
+            "ok": False,
+            "error": "CLAUDE_API_KEY 미설정",
+            "exit_code": 1,
+            "summary_dict": None,
+            "recrawl_stats": None,
+        }
 
-    # Supabase 클라이언트 (선택)
     sb_client = None
     if supabase_url and supabase_key:
         try:
@@ -533,13 +634,17 @@ def main() -> int:
         except Exception as e:
             logger.warning("Supabase 연결 실패 (계속 진행): %s", e)
 
-    # Claude 클라이언트
     llm = ClaudeClient(api_key=api_key)
     if not llm.available:
-        logger.error("Claude API 키 무효")
-        return 1
+        llm.close()
+        return {
+            "ok": False,
+            "error": "Claude API 키 무효",
+            "exit_code": 1,
+            "summary_dict": None,
+            "recrawl_stats": None,
+        }
 
-    # Perplexity 클라이언트 (선택)
     pplx_client = None
     pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
     if pplx_key:
@@ -547,26 +652,44 @@ def main() -> int:
         pplx_client = PerplexityClient(api_key=pplx_key)
         logger.info("Perplexity API 활성화 (model: %s)", pplx_client.model)
 
-    # HTTP 클라이언트
-    http = httpx.Client(timeout=20.0, follow_redirects=True)
+    http = httpx.Client(
+        timeout=httpx.Timeout(45.0, connect=25.0, read=40.0),
+        follow_redirects=True,
+    )
 
-    # 약품 로드
     registry = DrugRegistry()
     drugs = registry.load_from_json()
     if not drugs:
-        logger.error("약품 레지스트리 비어있음")
-        return 1
+        llm.close()
+        if pplx_client:
+            pplx_client.close()
+        http.close()
+        return {
+            "ok": False,
+            "error": "약품 레지스트리 비어있음",
+            "exit_code": 1,
+            "summary_dict": None,
+            "recrawl_stats": None,
+        }
 
-    # 특정 약품 필터
-    if drug_id:
-        drugs = [d for d in drugs if d.id == drug_id]
+    if drug_ids is not None:
+        id_set = set(drug_ids)
+        drugs = [d for d in drugs if d.id in id_set]
         if not drugs:
-            logger.error("약품 ID '%s' 없음", drug_id)
-            return 1
+            llm.close()
+            if pplx_client:
+                pplx_client.close()
+            http.close()
+            return {
+                "ok": False,
+                "error": "지정한 품목 ID가 레지스트리에 없음",
+                "exit_code": 1,
+                "summary_dict": None,
+                "recrawl_stats": None,
+            }
 
     logger.info("AI 자율 서칭 시작: %d개 약품, dry_run=%s", len(drugs), dry_run)
 
-    # ── 재크롤링 패스: 기존 유효 소스 먼저 처리 ──
     recrawl_stats = _run_recrawl_pass(sb_client, http, dry_run, fetch_delay)
     if recrawl_stats["recrawled"] > 0:
         logger.info(
@@ -574,7 +697,6 @@ def main() -> int:
             recrawl_stats["recrawled"], recrawl_stats["records"], recrawl_stats["errors"],
         )
 
-    # ── 신규 약품 처리 (기존 Phase A→B→C) ──
     summary = AISearchSummary()
 
     for drug in drugs:
@@ -602,33 +724,81 @@ def main() -> int:
         summary.total_records += result.records_extracted
         summary.total_errors += len(result.errors)
 
-    # LLM 토큰 사용량
     summary.llm_token_usage = llm.usage.summary()
     if pplx_client:
         summary.llm_token_usage["perplexity"] = pplx_client.usage.summary()
     summary.duration_sec = time.time() - start
 
-    # 정리
     llm.close()
     if pplx_client:
         pplx_client.close()
     http.close()
 
-    # 결과 출력
-    _print_summary(summary)
-    if recrawl_stats["recrawled"] > 0:
-        print(f"\n  재크롤링: {recrawl_stats['recrawled']}개 소스 → {recrawl_stats['records']}건 추출 ({recrawl_stats['errors']} 에러)")
-
-    # 결과 JSON 저장
-    output_path = ROOT / "reports" / "ai_search_result.json"
-    output_path.parent.mkdir(exist_ok=True)
     output_data = summary.to_dict()
     output_data["recrawl_stats"] = recrawl_stats
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
-    logger.info("결과 저장: %s", output_path)
 
-    return 0 if summary.total_errors == 0 else 1
+    if save_json:
+        output_path = ROOT / "reports" / "ai_search_result.json"
+        output_path.parent.mkdir(exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        logger.info("결과 저장: %s", output_path)
+
+    exit_code = 0 if summary.total_errors == 0 else 1
+    err_msg: Optional[str] = None
+    if exit_code != 0:
+        err_msg = f"단계 오류 {summary.total_errors}건"
+        snippets: list[str] = []
+        for dr in summary.drug_results:
+            for ex in dr.errors[:5]:
+                snippets.append(ex[:240])
+                if len(snippets) >= 8:
+                    break
+            if len(snippets) >= 8:
+                break
+        if snippets:
+            err_msg += ": " + " | ".join(snippets)
+    return {
+        "ok": exit_code == 0,
+        "error": err_msg,
+        "exit_code": exit_code,
+        "summary_dict": output_data,
+        "recrawl_stats": recrawl_stats,
+        "summary": summary,
+    }
+
+
+def main() -> int:
+    """AI 자율 서칭 메인 함수. exit code 반환."""
+    drug_id = os.environ.get("DRUG_ID", "")
+    drug_ids = [drug_id] if drug_id else None
+    dry_run = os.environ.get("DRY_RUN", "false").lower() == "true"
+    max_queries = int(os.environ.get("MAX_QUERIES", "5"))
+    fetch_delay = float(os.environ.get("FETCH_DELAY", "2.0"))
+
+    out = run_ai_search_session(
+        drug_ids=drug_ids,
+        dry_run=dry_run,
+        max_queries=max_queries,
+        fetch_delay=fetch_delay,
+        save_json=True,
+    )
+
+    if not out["ok"] and out.get("error"):
+        logger.error("%s", out["error"])
+        return int(out.get("exit_code", 1))
+
+    summary = out.get("summary")
+    if summary is not None:
+        _print_summary(summary)
+    recrawl_stats = out.get("recrawl_stats") or {}
+    if recrawl_stats.get("recrawled", 0) > 0:
+        print(
+            f"\n  재크롤링: {recrawl_stats['recrawled']}개 소스 → "
+            f"{recrawl_stats['records']}건 추출 ({recrawl_stats['errors']} 에러)"
+        )
+
+    return int(out.get("exit_code", 1))
 
 
 def _print_summary(summary: AISearchSummary) -> None:

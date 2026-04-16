@@ -20,7 +20,8 @@
       "Bash(python -m pytest tests/test_source_discoverer.py -v)",
       "Bash(python -m pytest tests/ -v)",
       "Bash(nslookup oynefikqoibwtfpjlizv.supabase.co)",
-      "Bash(python _apply_unified_schema.py)"
+      "Bash(python assets/snippets/normalizer.py)",
+      "Bash(python -m pytest tests/test_ai_search.py tests/test_scispace_stage4.py -x -q)"
     ]
   }
 }

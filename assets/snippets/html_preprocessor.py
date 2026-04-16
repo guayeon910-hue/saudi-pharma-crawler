@@ -458,13 +458,16 @@ def extract_pinpoint_snippet(
     if not html:
         return ""
 
+    # BeautifulSoup 과부하 방지: 200 KB 초과분 잘라냄
+    html = html[:200_000]
+
     # 1) 기존 유틸 재사용: 파싱 + 노이즈 제거 + DOM 단순화
     soup = _parse_html(html)
     soup = _remove_noise(soup)
     soup = _simplify_dom(soup, max_depth=max_depth)
 
     # 2) 키워드 매칭 블록 수집
-    kws = [k.lower().strip() for k in (keywords or []) if k and k.strip()]
+    kws = [k.lower().strip() for k in (keywords or []) if isinstance(k, str) and k.strip()]
     matched_htmls: list[tuple[int, str]] = []  # (score, html)
 
     if kws:

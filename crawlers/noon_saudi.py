@@ -132,7 +132,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
                     seen_ids.add(pid)
 
                     bonus = reputation.confidence_bonus("noon_saudi")
-                    record["confidence"] = min(1.0, max(0.0, (record.get("confidence") or 0.55) + bonus))
+                    record["confidence"] = min(0.99, max(0.0, (record.get("confidence") or 0.55) + bonus))
 
                     if not dry_run:
                         try:

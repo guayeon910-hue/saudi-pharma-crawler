@@ -78,6 +78,37 @@ class WhitesClient:
         return resp.text
 
 
+def _extract_objects_with_price(chunk: str) -> list[dict]:
+    """RSC 청크에서 retail_price를 포함하는 JSON 객체를 브레이스 매칭으로 추출.
+
+    기존의 6개 별도 re.findall + 인덱스 정렬 방식을 대체한다.
+    인덱스 불일치로 인한 필드 혼용(name↔sku↔price 미스매치)을 방지한다.
+    """
+    import json as _json
+
+    objects = []
+    depth = 0
+    start = -1
+    for i, c in enumerate(chunk):
+        if c == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0 and start >= 0:
+                fragment = chunk[start:i + 1]
+                if '"retail_price"' in fragment and '"name"' in fragment:
+                    try:
+                        obj = _json.loads(fragment)
+                        if isinstance(obj, dict) and obj.get("name") and obj.get("sku"):
+                            objects.append(obj)
+                    except _json.JSONDecodeError:
+                        pass
+                start = -1
+    return objects
+
+
 def _parse_products_from_html(html: str) -> list[dict]:
     """검색 결과 HTML에서 제품 정보 추출.
 
@@ -104,6 +135,9 @@ def _parse_products_from_html(html: str) -> list[dict]:
         r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL
     )
 
+    filter_labels = {"Categories", "Brands", "Forms", "In Stock", "Quantity",
+                     "Size", "Price", "Sort"}
+
     for chunk_raw in next_f_chunks:
         # 큰 청크만 확인 (제품 데이터는 대용량)
         if len(chunk_raw) < 500:
@@ -116,49 +150,32 @@ def _parse_products_from_html(html: str) -> list[dict]:
         except (UnicodeDecodeError, ValueError):
             continue
 
-        # 제품 필드 추출: pk, name, sku, price, retail_price, absolute_url, Brand
-        names = re.findall(r'"pk":(\d+).*?"name":"([^"]+)"', chunk)
-        prices = re.findall(r'"price":"([\d.]+)"', chunk)
-        skus = re.findall(r'"sku":"(\d+)"', chunk)
-        urls = re.findall(r'"absolute_url":"([^"]+)"', chunk)
-        brands = re.findall(r'"Brand":"([^"]+)"', chunk)
-        forms = re.findall(r'"Forms":"([^"]+)"', chunk)
-
-        if not skus:
-            continue
-
-        # 필드 정렬: sku 수 기준으로 제품 수 결정
-        n_products = len(skus)
-
-        # name 목록에서 UI 라벨 제거 (Categories, Brands, Forms 등은 필터명)
-        product_names = []
-        filter_labels = {"Categories", "Brands", "Forms", "In Stock", "Quantity",
-                         "Size", "Price", "Sort"}
-        for _, name in names:
-            if name not in filter_labels and len(name) > 3:
-                product_names.append(name)
-
-        for idx in range(n_products):
-            product: dict[str, Any] = {}
-
-            if idx < len(product_names):
-                product["name"] = product_names[idx]
-            if idx < len(skus):
-                product["sku"] = skus[idx]
-            if idx < len(prices):
+        # 브레이스 매칭으로 완전한 JSON 객체 단위 추출 → 인덱스 불일치 방지
+        for obj in _extract_objects_with_price(chunk):
+            name = obj.get("name", "")
+            if name in filter_labels or len(name) <= 3:
+                continue
+            product: dict[str, Any] = {"name": name}
+            sku = obj.get("sku")
+            if sku:
+                product["sku"] = str(sku)
+            retail_price = obj.get("retail_price") or obj.get("price")
+            if retail_price is not None:
                 try:
-                    product["price"] = float(prices[idx])
-                except ValueError:
+                    product["price"] = float(retail_price)
+                except (TypeError, ValueError):
                     pass
-            if idx < len(urls):
-                product["url"] = f"{WHITES_BASE}{urls[idx]}"
-            if idx < len(brands):
-                product["brand"] = brands[idx]
-            if idx < len(forms):
-                product["form"] = forms[idx]
-
-            if product.get("name"):
-                products.append(product)
+            abs_url = obj.get("absolute_url")
+            if abs_url:
+                product["url"] = f"{WHITES_BASE}{abs_url}"
+            attrs = obj.get("attributes") or {}
+            brand = attrs.get("Brand") or obj.get("Brand")
+            if brand:
+                product["brand"] = brand
+            form = attrs.get("Forms") or obj.get("Forms")
+            if form:
+                product["form"] = form
+            products.append(product)
 
     if products:
         return products
@@ -204,7 +221,7 @@ def map_whites_to_schema(product: dict, *, source_url: str) -> dict[str, Any]:
         pid = f"WHITES_{sku}"
     else:
         import hashlib
-        pid = f"WHITES_{hashlib.md5(name.encode()).hexdigest()[:12]}"
+        pid = f"WHITES_{hashlib.sha256(name.encode()).hexdigest()[:16]}"
 
     price = product.get("price")
     return {
@@ -235,7 +252,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
       - delay: 요청 간격 초 (기본 2.0)
     """
     inserted = 0
-    updated = 0
+    updated = 0  # NOTE: Supabase upsert does not distinguish insert vs update; always 0.
     skipped = 0
 
     keywords = cfg.get("keywords", [
@@ -286,7 +303,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
                     seen_ids.add(pid)
 
                     bonus = reputation.confidence_bonus("whites_web")
-                    record["confidence"] = min(1.0, max(0.0, (record.get("confidence") or 0.70) + bonus))
+                    record["confidence"] = min(0.99, max(0.0, (record.get("confidence") or 0.70) + bonus))
 
                     if not dry_run:
                         try:

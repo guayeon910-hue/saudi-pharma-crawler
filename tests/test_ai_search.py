@@ -94,17 +94,17 @@ class TestNormalizeRecords(unittest.TestCase):
                 "active_ingredient": "Paracetamol",
                 "strength": "500mg",
                 "_source_domain": "pharmacy.sa",
+                "_page_url": "https://pharmacy.sa/panadol",
             }
         ]
         normalized = _normalize_records(records, "pharmacy.sa")
         self.assertEqual(len(normalized), 1)
-        # normalizer 가용 시 source 필드 추가, 없으면 raw 반환
         rec = normalized[0]
-        if "source" in rec:
-            self.assertIn("ai_discovered", rec["source"])
-        else:
-            # normalizer import 실패 — raw 데이터 그대로 반환
-            self.assertIn("product_name", rec)
+        self.assertEqual(rec.get("source_name"), "ai_discovered")
+        self.assertEqual(rec.get("country"), "SA")
+        self.assertTrue(str(rec.get("product_id", "")).startswith("ai_discovered:"))
+        self.assertEqual(rec.get("trade_name"), "Panadol Extra")
+        self.assertEqual(rec.get("source_url"), "https://pharmacy.sa/panadol")
 
     def test_empty_records(self):
         normalized = _normalize_records([], "test.com")
@@ -116,9 +116,9 @@ class TestNormalizeRecords(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestProcessOneDrug(unittest.TestCase):
-    @patch("ai_search.fetch_page_html")
+    @patch("ai_search.fetch_page_html_ex")
     @patch("ai_search.discover_sources")
-    def test_full_pipeline_success(self, mock_discover, mock_fetch_html):
+    def test_full_pipeline_success(self, mock_discover, mock_fetch_ex):
         """전체 파이프라인 성공 시뮬레이션."""
         from assets.snippets.source_discoverer import DiscoveryResult, DiscoveredSource
 
@@ -142,7 +142,8 @@ class TestProcessOneDrug(unittest.TestCase):
         )
 
         # Mock HTML (Phase B)
-        mock_fetch_html.return_value = """
+        mock_fetch_ex.return_value = (
+        """
         <html><head><title>Pharmacy SA</title></head><body>
         <div class="products">
             <div class="product">
@@ -154,7 +155,9 @@ class TestProcessOneDrug(unittest.TestCase):
             </div>
         </div>
         </body></html>
-        """
+        """,
+        "",
+        )
 
         # Mock LLM
         mock_llm = MagicMock()
@@ -235,9 +238,9 @@ class TestProcessOneDrug(unittest.TestCase):
 class TestFullSimulation(unittest.TestCase):
     """8개 약품에 대한 시뮬레이션 — 모든 외부 호출 mock."""
 
-    @patch("ai_search.fetch_page_html")
+    @patch("ai_search.fetch_page_html_ex")
     @patch("ai_search.discover_sources")
-    def test_all_drugs_simulation(self, mock_discover, mock_fetch_html):
+    def test_all_drugs_simulation(self, mock_discover, mock_fetch_ex):
         """8개 약품 순차 처리 시뮬레이션."""
         from assets.snippets.source_discoverer import DiscoveryResult, DiscoveredSource
 
@@ -276,7 +279,8 @@ class TestFullSimulation(unittest.TestCase):
         mock_discover.side_effect = lambda llm, http, info, **kw: make_discovery(info, **kw)
 
         # Phase B: HTML + XPath 생성
-        mock_fetch_html.return_value = """
+        mock_fetch_ex.return_value = (
+        """
         <html><head><title>Pharma SA</title></head><body>
         <div class="products">
             <div class="item">
@@ -286,7 +290,9 @@ class TestFullSimulation(unittest.TestCase):
             </div>
         </div>
         </body></html>
-        """
+        """,
+        "",
+        )
 
         mock_llm = MagicMock()
         mock_llm.available = True

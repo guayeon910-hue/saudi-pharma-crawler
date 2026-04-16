@@ -42,7 +42,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
       - keyword: 검색 키워드 (기본: "pharmaceutical")
     """
     inserted = 0
-    updated = 0
+    updated = 0  # NOTE: Supabase upsert does not distinguish insert vs update; always 0.
     skipped = 0
 
     api_key = os.environ.get("ETIMAD_API_KEY") or cfg.get("api_key", "")
@@ -64,6 +64,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
     if not api_key:
         logger.warning("ETIMAD_API_KEY 미설정 — 크롤링 건너뜀")
         audit.log("error", "etimad_api", {"reason": "no_api_key"})
+        metrics.inc("crawl_skipped")
         return {
             "rows_inserted": 0,
             "rows_updated": 0,
@@ -73,6 +74,8 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
         }
 
     logger.info(f"Etimad 크롤링 시작 (keyword={keyword})")
+
+    retry_429_count = 0
 
     client = httpx.Client(
         timeout=30.0,
@@ -96,6 +99,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
                 resp = client.get(CONTRACTS_URL, params=params)
                 resp.raise_for_status()
                 data = resp.json()
+                retry_429_count = 0  # 성공 시 429 재시도 카운터 리셋
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code
                 if status == 401:
@@ -107,7 +111,14 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
                     audit.log("error", "etimad_api", {"status": 403})
                     break
                 elif status == 429:
-                    logger.warning("Etimad API 레이트 리밋 (429)")
+                    retry_429_count += 1
+                    logger.warning(
+                        f"Etimad API 레이트 리밋 (429) — attempt {retry_429_count}/3"
+                    )
+                    if retry_429_count >= 3:
+                        logger.error("Etimad API 429 limit reached 3 times, aborting")
+                        audit.log("error", "etimad_api", {"reason": "429_retry_exceeded"})
+                        break
                     time.sleep(delay * 5)
                     continue
                 else:
@@ -126,7 +137,7 @@ def run(sb: Any, cfg: dict, dry_run: bool = False) -> dict:
                 record = _map_contract_to_schema(contract)
 
                 bonus = reputation.confidence_bonus("etimad_api")
-                record["confidence"] = min(1.0, max(0.0, record["confidence"] + bonus))
+                record["confidence"] = min(0.99, max(0.0, record["confidence"] + bonus))
 
                 if not dry_run:
                     try:
