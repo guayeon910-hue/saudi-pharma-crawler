@@ -202,7 +202,14 @@ def _emit_sync(event: dict) -> None:
 async def lifespan(app: FastAPI):
     _state["lock"] = asyncio.Lock()
     _reset_site_states()
-    logger.info("Frontend server 시작")
+    _static_probe = Path(__file__).resolve().parent / "static"
+    logger.info(
+        "Frontend server 시작 · PORT=%s cwd=%s static_dir=%s exists=%s",
+        os.environ.get("PORT"),
+        Path.cwd(),
+        _static_probe,
+        _static_probe.is_dir(),
+    )
     yield
     logger.info("Frontend server 종료")
 
@@ -1786,6 +1793,19 @@ async def api_p2_price_analyze(
 # ═══════════════════════════════════════════════════════════════════════════
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+if not STATIC_DIR.is_dir():
+    raise RuntimeError(
+        f"frontend/static UI directory missing at {STATIC_DIR!s}. "
+        "On Render: set Root Directory to the repository root (folder containing Dockerfile), "
+        "not a subfolder; leave Start Command empty so Dockerfile CMD runs."
+    )
+
+
+@app.get("/healthz")
+async def healthz():
+    """Render·로드밸런서 헬스 체크용 (가벼운 JSON)."""
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)

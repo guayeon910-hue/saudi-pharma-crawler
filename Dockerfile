@@ -21,6 +21,9 @@ RUN apt-get update \
 
 COPY . .
 
+# Render 빌드 컨텍스트가 레포 루트가 아니면 여기서 즉시 실패(런타임 exit 1 방지)
+RUN test -d frontend/static && test -f frontend/static/index.html && test -f frontend/server.py
+
 EXPOSE 8000
 
 CMD ["sh", "-c", "exec uvicorn frontend.server:app --host 0.0.0.0 --port ${PORT:-8000}"]

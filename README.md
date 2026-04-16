@@ -186,6 +186,13 @@ python -m main
 CLAUDE_API_KEY=sk-ant-... python ai_search.py
 ```
 
+### Render (Docker) 배포가 실패할 때
+
+- **Root Directory**: 레포지토리 **루트**(루트에 `Dockerfile`, `frontend/` 폴더가 보이는 경로)여야 한다. `frontend`만 루트로 지정하면 이미지 안에 `frontend/static`이 없어 앱이 기동 직후 종료(exit 1)할 수 있다.
+- **Start Command**: 비워 두고 Dockerfile의 `CMD`만 쓴다(예: `gunicorn`·`python main.py`로 덮어쓰면 안 된다).
+- **헬스**: `GET /healthz` → `{"status":"ok"}`. 대시보드 Health Check 경로로 쓸 수 있다.
+- **빌드**: Dockerfile에 `frontend/static` 존재 검사가 있어, 잘못된 컨텍스트면 **빌드 단계**에서 실패한다.
+
 ### AI 추출을 `products`에 넣으려면
 
 이미 `ai_search.py`는 성공 시 **`products` 테이블에 upsert**한다 (`source_name` = `ai_discovered`, `product_id` = `ai_discovered:…` 해시). 필요한 것만 정리하면 아래와 같다.
@@ -219,6 +226,7 @@ CLAUDE_API_KEY=sk-ant-... python ai_search.py
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/` | 대시보드 HTML |
+| GET | `/healthz` | 헬스 체크 JSON |
 | GET | `/api/exchange` | SAR/KRW 등 환율 |
 | GET | `/api/keys/status` | Claude·Perplexity 키 설정 여부 |
 | GET | `/api/news` | 사우디 시장 뉴스 |
