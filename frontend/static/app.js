@@ -79,7 +79,8 @@ function goTab(id, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
   const page = document.getElementById(id);
   if (page) page.classList.add('on');
-  if (el)   el.classList.add('on');
+  const tabEl = el || document.getElementById('tab-' + id);
+  if (tabEl) tabEl.classList.add('on');
   if (id === 'p2') populateP2ReportSelect();
 }
 
@@ -1070,11 +1071,22 @@ async function runP2PriceAnalysis() {
   }
 }
 
-function _initP2FromHash() {
-  if (location.hash !== '#p2') return;
-  const tab = document.getElementById('tab-p2');
-  goTab('p2', tab);
+/** URL 해시 → 페이지 id (`/#p1`, `/#rep` 등) */
+const _TAB_FROM_HASH = {
+  '':       'main',
+  '#main':  'main',
+  '#p1':    'p1',
+  '#p2':    'p2',
+  '#p3':    'p3',
+  '#rep':   'rep',
+};
+
+function initTabFromHash() {
+  const pageId = _TAB_FROM_HASH[location.hash] ?? 'main';
+  goTab(pageId, document.getElementById('tab-' + pageId));
 }
+
+window.addEventListener('hashchange', initTabFromHash);
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    §13. 초기화
@@ -1088,5 +1100,5 @@ populateP2ReportSelect();
 initP2Dropzone();
 _bindP2Inputs();
 _p2UpdateRunEnabled();
-_initP2FromHash();
+initTabFromHash();
 loadNews();        // §11: 시장 뉴스 즉시 로드

@@ -27,6 +27,7 @@
  *  20.  보고서 탭
  *  21.  빈 페이지 (3공정)
  *  21b. 2공정 · 수출전략 (가격 분석)
+ *  21c. 3공정 · 바이어 발굴 (안내)
  *  22.  보고서 로딩 스피너
  *  23.  반응형
  *  24.  스크롤바
@@ -1234,7 +1235,38 @@ select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
   line-height: 1.55;
 }
 
-/* ── 21. 빈 페이지 (3공정) ─────────────────────────────────────────────── */
+/* ── 21c. 3공정 · 바이어 발굴 (안내 카드) ───────────────────────────────── */
+.p3-stack {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.p3-card {
+  margin-bottom: 16px;
+}
+
+.p3-lead {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.p3-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+  align-items: center;
+}
+
+button.p3-btn-secondary {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── 21. 빈 페이지 (잔여 플레이스홀더용) ───────────────────────────────── */
 .empty-page {
   display: flex;
   flex-direction: column;

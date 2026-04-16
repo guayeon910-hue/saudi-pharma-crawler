@@ -116,11 +116,14 @@ saudi-pharma-crawler/
 ├── targeted_search.py         # 타겟 검색 오케스트레이터 (1약품→7소스)
 ├── report_generator.py        # DOCX 보고서 생성
 │
-├── frontend/                  # 대시보드 프론트엔드
-│   ├── server.py              #   FastAPI 서버 (SSE + 4단계 파이프라인)
+├── frontend/                  # 대시보드 프론트엔드 (Render·Docker에서 단일 소스)
+│   ├── server.py              #   FastAPI (파이프라인, 뉴스, 2공정 스텁 API 등)
 │   ├── dashboard_sites.py     #   크롤링 사이트 7개 메타 정의
-│   └── static/
-│       └── index.html         #   3탭 대시보드 UI (분석 / 이상치 / 데이터 분석)
+│   └── static/                #   정적 UI — 서버가 `/static`으로 마운트
+│       ├── index.html         #   5탭 SPA: 메인 / 1·2·3공정 / 보고서 (`#main` … `#rep` 해시)
+│       ├── app.js
+│       ├── style.css
+│       └── images/logo.png
 │
 ├── crawlers/                  # 7개 소스 크롤러
 │   ├── sfda_api.py            #   SFDA 의약품 (PHP JSON API)
@@ -197,35 +200,33 @@ CLAUDE_API_KEY=sk-ant-... python ai_search.py
 
 예전에만 `ai_discovered_products`에 쌓인 행을 `products`로 옮기려면, Supabase에서 한 번 실행하는 **INSERT…SELECT 마이그레이션**이 별도로 필요하다(데이터 유무에 따라).
 
-## 대시보드 (3탭)
+## 대시보드 (UPharma Export AI · 5탭)
 
-`frontend/server.py`로 구동하는 통합 대시보드:
+`uvicorn frontend.server:app`으로 구동하며, UI는 [frontend/static/](frontend/static/)만 서빙된다 (`/` → `index.html`, `/static/*` → JS/CSS/이미지). URL 해시로 탭 직링크가 가능하다 (`/#main`, `/#p1`, `/#p2`, `/#p3`, `/#rep`).
 
 | 탭 | 내용 |
 |----|------|
-| **🔬 분석** | 품목 선택 → **실행**: 고정 7소스 크롤+분석 / **AI 자율 서칭**: 검색·URL발견·추출·`products` 적재 (`ai_search`와 동일) / Perplexity·보고서·실시간 로그 |
-| **⚠️ 이상치 탐지** | 정상/이상치 도넛 차트 + 신뢰도 분포 + 상세 테이블 (100행) |
-| **📊 데이터 분석** | 실시간 DB 데이터 기반 — 소스별 수집 현황, 가격 분포, 신뢰도 분포, 이상치 유형 분류, AI 자동 탐색 URL, 전체 레코드 테이블 |
+| **메인 프리뷰** | 사우디 관세·환율 요약, 공정 To-Do, 시장 뉴스 |
+| **1공정 · 시장조사** | 품목 선택 → Claude 진출 적합 분석, 논문, PDF 보고서 |
+| **2공정 · 수출전략** | 1공정 보고서 선택·PDF 업로드, 공공/민간 시장, 가격 분석(스텁 API) |
+| **3공정 · 바이어 발굴** | 이후 바이어 매칭 연동 예정 안내 및 보고서·2공정으로 이동 |
+| **보고서** | 1공정 완료 시 자동 등록된 항목·PDF 다운로드(localStorage) |
 
 ### 주요 API 엔드포인트
 
+자세한 라우트는 [frontend/server.py](frontend/server.py)를 본다. UI에서 쓰는 예시는 다음과 같다.
+
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/` | 대시보드 UI |
-| GET | `/api/stream` | SSE 실시간 이벤트 스트림 |
-| GET | `/api/sites` | 크롤링 사이트 상태 (7개) |
-| GET | `/api/products` | 품목 + DB 레코드 병합 반환 |
-| GET | `/api/macro` | KPI 카드 데이터 |
-| POST | `/api/pipeline/{key}` | 단일 품목 4단계 파이프라인 |
-| GET | `/api/pipeline/{key}/status` | 파이프라인 진행 상태 |
-| GET | `/api/pipeline/{key}/result` | 결과 (분석+참고문헌+보고서+AI소스) |
-| GET | `/api/ai-sources` | AI 발견 소스 전체 목록 |
-| POST | `/api/perplexity/analyze` | Perplexity 시장 인사이트 |
-| GET | `/api/db-stats` | DB 소스별 통계 |
-| POST | `/api/report` | 보고서 생성 |
-| GET | `/api/report/download` | 보고서 다운로드 |
-| POST | `/api/ai-search/run` | AI 자율 서칭 (`all_drugs` 또는 `product_key`) — `ai_search.py`와 동일 파이프라인 |
-| GET | `/api/ai-search/status` | AI 자율 서칭 실행 여부 |
+| GET | `/` | 대시보드 HTML |
+| GET | `/api/exchange` | SAR/KRW 등 환율 |
+| GET | `/api/keys/status` | Claude·Perplexity 키 설정 여부 |
+| GET | `/api/news` | 사우디 시장 뉴스 |
+| POST | `/api/pipeline/{product_key}` | 1공정 단일 품목 파이프라인 |
+| POST | `/api/pipeline/custom` | 신약(직접 입력) 파이프라인 |
+| GET | `/api/report/download` | 최근 생성 PDF |
+| POST | `/api/p2/price-analyze` | 2공정 가격 분석(현재 스텭 검증·스텁 응답) |
+| GET | `/api/stream` 등 | 레거시/기타 크롤·대시보드 데이터용 엔드포인트 |
 
 ## 관련 문서
 

@@ -11,7 +11,7 @@
     main  — 메인 프리뷰  (관세+환율 카드 | To-Do | 뉴스)
     p1    — 1공정 · 시장조사
     p2    — 2공정 · 수출전략  (가격 분석 UI + 스텁 API)
-    p3    — 3공정 · 바이어 발굴  (준비 중)
+    p3    — 3공정 · 바이어 발굴  (안내 카드 + 공정 링크)
     rep   — 보고서  (1공정 완료 시 자동 등록 · localStorage)
 
   API (전부 내부 서버 엔드포인트 — 외부 API 키 불필요):
@@ -34,7 +34,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
-  <link rel="stylesheet" href="/static/style.css?v=5"/>
+  <link rel="stylesheet" href="/static/style.css?v=6"/>
 </head>
 <body>
 <div class="app">
@@ -76,11 +76,11 @@
 
   <!-- ════ 내비게이션 탭 ════ -->
   <nav class="nav">
-    <a class="tab on" onclick="goTab('main',this)">메인 프리뷰</a>
-    <a class="tab"    onclick="goTab('p1',this)">1공정 · 시장조사</a>
+    <a class="tab on" id="tab-main" onclick="goTab('main',this)">메인 프리뷰</a>
+    <a class="tab" id="tab-p1" onclick="goTab('p1',this)">1공정 · 시장조사</a>
     <a class="tab" id="tab-p2" onclick="goTab('p2',this)">2공정 · 수출전략</a>
-    <a class="tab"    onclick="goTab('p3',this)">3공정 · 바이어 발굴</a>
-    <a class="tab"    onclick="goTab('rep',this)">보고서</a>
+    <a class="tab" id="tab-p3" onclick="goTab('p3',this)">3공정 · 바이어 발굴</a>
+    <a class="tab" id="tab-rep" onclick="goTab('rep',this)">보고서</a>
   </nav>
 
   <!-- ════════════════════════════════════════════════════════
@@ -461,13 +461,25 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════
-    3공정 · 바이어 발굴  (준비 중)
+    3공정 · 바이어 발굴  (안내 + 이전 공정 이동)
   ════════════════════════════════════════════════════════ -->
   <div id="p3" class="page">
-    <div class="empty-page">
-      <div class="ep-icon">🚧</div>
-      <div class="ep-msg">3공정 · 바이어 발굴은 준비 중입니다</div>
-      <div class="ep-sub">추후 업데이트 예정</div>
+    <div class="g1 p3-stack">
+      <article class="card p3-card">
+        <div class="selector-label">3공정 · 바이어 발굴</div>
+        <div class="sec" style="margin-bottom:12px;">
+          <div>
+            <h3>바이어 매칭·발굴</h3>
+            <p>1·2공정에서 시장 조사와 가격·수출 전략을 마친 뒤 연결될 단계입니다.</p>
+          </div>
+        </div>
+        <p class="p3-lead">생성된 1공정 보고서와 2공정 분석 결과를 바탕으로 병원·도매·조달처 등 잠재 바이어를 찾는 기능을 준비 중입니다.</p>
+        <p class="p2-mode-hint" style="margin-top:10px;">아래에서 보고서를 확인하거나 2공정으로 돌아가 가격 분석을 이어갈 수 있습니다.</p>
+        <div class="p3-actions">
+          <button type="button" class="btn-analyze" onclick="goTab('rep', document.getElementById('tab-rep'))">보고서 탭으로 이동</button>
+          <button type="button" class="btn-download p3-btn-secondary" onclick="goTab('p2', document.getElementById('tab-p2'))">2공정 · 수출전략</button>
+        </div>
+      </article>
     </div>
   </div>
 
@@ -498,6 +510,6 @@
 </main>
 </div><!-- /.app -->
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>
