@@ -1544,18 +1544,50 @@ _EXCHANGE_FALLBACK = {
     "sar_usd": 0.2667,   # SAR 은 1 USD = 3.75 SAR 페그 고정
 }
 
+# Frankfurter 미지원 통화(SAR) 보완: SAMA USD 페그 근사 (Render 등에서 yfinance 지연·차단 대비)
+_SAR_PER_USD_PEG = 3.75
+
+
+def _fetch_exchange_http_ecb() -> dict | None:
+    """Frankfurter(ECB) USD→KRW + SAR/USD 공식 페그. 클라우드에서 빠르게 응답."""
+    try:
+        import httpx
+
+        r = httpx.get(
+            "https://api.frankfurter.app/latest",
+            params={"from": "USD", "to": "KRW"},
+            timeout=6.0,
+            follow_redirects=True,
+        )
+        r.raise_for_status()
+        krw = float((r.json().get("rates") or {}).get("KRW") or 0)
+        if krw <= 0:
+            return None
+        sar_per_usd = _SAR_PER_USD_PEG
+        sar_krw = krw / sar_per_usd
+        sar_usd = 1.0 / sar_per_usd
+        return {
+            "ok": True,
+            "sar_krw": round(sar_krw, 2),
+            "usd_krw": round(krw, 2),
+            "sar_usd": round(sar_usd, 4),
+            "source": "http_ecb",
+        }
+    except Exception as e:
+        logger.warning("Frankfurter 환율 조회 실패: %s", e)
+        return None
+
 
 def _fetch_exchange_rates() -> dict:
-    """yfinance 로 실시간 환율 조회.
+    """환율: HTTP(ECB 경유) 우선 → yfinance. 실패 시 캐시·fallback.
 
-    ─ Yahoo Finance 에 SARKRW=X 티커가 존재하지 않으므로, SAR 이 USD 페그
-      (1 USD ≈ 3.75 SAR)라는 점을 활용해 USD 를 경유해 역산한다.
-
-        SAR/KRW = USD/KRW ÷ USD/SAR
-
-    ─ 한 번이라도 실패하면 캐시된 직전 성공 값 → fallback 근사값 순으로
-      degrade 하여 UI 는 항상 숫자를 받는다.
+    ─ Yahoo Finance 에 SARKRW=X 티커가 없어 USD 경유 역산.
+    ─ Render 등은 Yahoo 쪽이 지연·무응답인 경우가 많아 HTTP를 먼저 시도한다.
     """
+    http_data = _fetch_exchange_http_ecb()
+    if http_data is not None:
+        return http_data
+
     try:
         import yfinance as yf
     except ImportError:
@@ -1593,18 +1625,28 @@ async def api_exchange():
       - sar_krw : 1 SAR 당 원화 (메인 숫자)
       - usd_krw : 1 USD 당 원화 (서브)
       - sar_usd : 1 SAR 당 USD (서브)
-      - source  : yfinance | cache | cache_stale | fallback
+      - source  : http_ecb | yfinance | cache | cache_stale | fallback
     """
     now = time.time()
     cached = _exchange_cache["data"]
     if cached and (now - _exchange_cache["fetched_at"] < _exchange_cache["ttl"]):
         return {**cached, "source": "cache"}
 
-    # 동기 I/O (yfinance) — 스레드로 밀어 이벤트 루프 보호
-    data = await asyncio.to_thread(_fetch_exchange_rates)
+    # 동기 I/O — 스레드 + 전체 타임아웃 (yfinance 무응답 시 UI 영구 대기 방지)
+    try:
+        data = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_exchange_rates),
+            timeout=25.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("환율 조회 타임아웃")
+        if _exchange_cache["data"]:
+            data = {**_exchange_cache["data"], "source": "cache_stale"}
+        else:
+            data = {**_EXCHANGE_FALLBACK, "source": "fallback", "ok": False}
 
     # 성공 응답만 캐시
-    if data.get("ok") and data.get("source") == "yfinance":
+    if data.get("ok") and data.get("source") in ("yfinance", "http_ecb"):
         _exchange_cache["data"] = data
         _exchange_cache["fetched_at"] = now
 
