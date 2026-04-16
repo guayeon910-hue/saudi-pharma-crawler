@@ -34,7 +34,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
-  <link rel="stylesheet" href="/static/style.css?v=6"/>
+  <link rel="stylesheet" href="/static/style.css?v=7"/>
 </head>
 <body>
 <div class="app">
@@ -85,12 +85,12 @@
 
   <!-- ════════════════════════════════════════════════════════
     메인 프리뷰
-    ▸ g3: [관세+환율 카드] | [To-Do 카드] | [뉴스 카드]
+    ▸ g3: [관세+환율] | [뉴스(넓음)] | [To-Do] — 열 비율·높이 팀원 레이아웃에 맞춤
   ════════════════════════════════════════════════════════ -->
   <div id="main" class="page on">
     <div class="g3">
 
-      <!-- ── 관세 + 환율 병합 카드 ──────────────────────────────── -->
+      <!-- ── 관세 + 환율 병합 카드 (좁은 열) ─────────────────────── -->
       <article class="card tariff-card">
         <div class="sec">
           <div>
@@ -144,56 +144,8 @@
         </div>
       </article>
 
-      <!-- ── 공정 진행 체크리스트 카드 ─────────────────────────────── -->
-      <article class="card">
-        <div class="sec">
-          <div>
-            <h3>공정 진행 체크리스트</h3>
-          </div>
-        </div>
-
-        <!-- 고정 항목 (자동 체크 가능) — app.js §4 initTodo() / markTodoDone() 가 제어 -->
-        <div class="todo-list" id="todo-fixed-list">
-          <div class="todo-item" id="todo-p1" onclick="toggleTodo('p1')">
-            <div class="todo-check" id="todo-check-p1"></div>
-            <span class="todo-label">1공정 · 시장조사 분석</span>
-            <span class="todo-auto-badge">자동</span>
-          </div>
-          <div class="todo-item" id="todo-rep" onclick="toggleTodo('rep')">
-            <div class="todo-check" id="todo-check-rep"></div>
-            <span class="todo-label">보고서 생성</span>
-            <span class="todo-auto-badge">자동</span>
-          </div>
-          <div class="todo-item" id="todo-p2" onclick="toggleTodo('p2')">
-            <div class="todo-check" id="todo-check-p2"></div>
-            <span class="todo-label">2공정 · 수출전략 수립</span>
-            <span class="todo-auto-badge">예정</span>
-          </div>
-          <div class="todo-item" id="todo-p3" onclick="toggleTodo('p3')">
-            <div class="todo-check" id="todo-check-p3"></div>
-            <span class="todo-label">3공정 · 바이어 발굴</span>
-            <span class="todo-auto-badge">예정</span>
-          </div>
-        </div>
-
-        <!-- 사용자 추가 항목 — app.js §4 _renderCustomTodos() 가 채움 -->
-        <div id="todo-custom-list"></div>
-
-        <!-- 항목 추가 입력 -->
-        <div class="todo-add-row">
-          <input
-            class="todo-input"
-            id="todo-input"
-            type="text"
-            placeholder="항목 추가 후 Enter…"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();addTodoItem(event)}"
-          />
-          <button class="btn-todo-add" onclick="addTodoItem()">+ 추가</button>
-        </div>
-      </article>
-
-      <!-- ── 시장 신호 · 뉴스 카드 (DB/SerpAPI 동적) ──────────────────── -->
-      <article class="card">
+      <!-- ── 시장 신호 · 뉴스 카드 (가운데 넓은 열) ─────────────────── -->
+      <article class="card main-col-news">
         <div class="sec">
           <div>
             <h3>시장 신호 · 뉴스</h3>
@@ -205,8 +157,58 @@
           </button>
         </div>
         <!-- app.js §11 loadNews() 가 채움 -->
-        <div id="news-list">
+        <div id="news-list" class="main-news-scroll">
           <div class="irow news-placeholder">뉴스 로드 중…</div>
+        </div>
+      </article>
+
+      <!-- ── 공정 진행 체크리스트 카드 (오른쪽 열) ─────────────────── -->
+      <article class="card main-col-todo">
+        <div class="sec">
+          <div>
+            <h3>공정 진행 체크리스트</h3>
+          </div>
+        </div>
+
+        <div class="main-todo-scroll">
+          <!-- 고정 항목 (자동 체크 가능) — app.js §4 initTodo() / markTodoDone() 가 제어 -->
+          <div class="todo-list" id="todo-fixed-list">
+            <div class="todo-item" id="todo-p1" onclick="toggleTodo('p1')">
+              <div class="todo-check" id="todo-check-p1"></div>
+              <span class="todo-label">1공정 · 시장조사 분석</span>
+              <span class="todo-auto-badge">자동</span>
+            </div>
+            <div class="todo-item" id="todo-rep" onclick="toggleTodo('rep')">
+              <div class="todo-check" id="todo-check-rep"></div>
+              <span class="todo-label">보고서 생성</span>
+              <span class="todo-auto-badge">자동</span>
+            </div>
+            <div class="todo-item" id="todo-p2" onclick="toggleTodo('p2')">
+              <div class="todo-check" id="todo-check-p2"></div>
+              <span class="todo-label">2공정 · 수출전략 수립</span>
+              <span class="todo-auto-badge">예정</span>
+            </div>
+            <div class="todo-item" id="todo-p3" onclick="toggleTodo('p3')">
+              <div class="todo-check" id="todo-check-p3"></div>
+              <span class="todo-label">3공정 · 바이어 발굴</span>
+              <span class="todo-auto-badge">예정</span>
+            </div>
+          </div>
+
+          <!-- 사용자 추가 항목 — app.js §4 _renderCustomTodos() 가 채움 -->
+          <div id="todo-custom-list"></div>
+        </div>
+
+        <!-- 항목 추가 입력 -->
+        <div class="todo-add-row">
+          <input
+            class="todo-input"
+            id="todo-input"
+            type="text"
+            placeholder="항목 추가 후 Enter…"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addTodoItem(event)}"
+          />
+          <button class="btn-todo-add" onclick="addTodoItem()">+ 추가</button>
         </div>
       </article>
 

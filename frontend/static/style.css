@@ -282,13 +282,40 @@ a { color: inherit; }
 }
 
 /* ── 7. 그리드 레이아웃 ──────────────────────────────────────────────────── */
-/* 3열 — 메인 프리뷰 */
+/* 3열 — 메인 프리뷰(기본, 다른 페이지에서 재사용 시 동등 3열) */
 .g3 {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
   align-items: start;
+}
+
+/* 메인 탭만: 팀원 레이아웃 — 좁은 관세·환율 | 넓은 뉴스 | 좁은 To-Do, 행 높이 동일 */
+#main .g3 {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr) minmax(0, 0.9fr);
+  align-items: stretch;
+}
+
+#main .g3 > article.card {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#main .g3 .main-news-scroll,
+#main .g3 .main-todo-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#main .g3 .main-col-todo .todo-add-row {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 /* 2열 */
@@ -1301,12 +1328,38 @@ button.p3-btn-secondary {
 /* ── 23. 반응형 ──────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
   .g3 { grid-template-columns: 1fr 1fr; }
+  #main .g3 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  #main .g3 > .tariff-card {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  #main .g3 > .main-col-news {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  #main .g3 > .main-col-todo {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 @media (max-width: 960px) {
   .g2 { grid-template-columns: 1fr; }
   .g3 { grid-template-columns: 1fr; }
   .rs-strategy-grid { grid-template-columns: 1fr; }
+  #main .g3 {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+  #main .g3 > .tariff-card,
+  #main .g3 > .main-col-news,
+  #main .g3 > .main-col-todo {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
 
 @media (max-width: 720px) {
