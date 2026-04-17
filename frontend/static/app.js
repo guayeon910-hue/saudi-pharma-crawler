@@ -272,11 +272,53 @@ function _renderCustomTodos(state) {
    §5. 보고서 탭 관리 (N4)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-const REPORTS_LS_KEY = 'sg_upharma_reports_v1';
+const REPORTS_LS_KEY      = 'sg_upharma_reports_v1';
+const REPORTS_FULL_LS_KEY = 'sg_upharma_reports_full_v1';   // 2공정 민간 FOB 재분석용 최소 blob
 
 function _loadReports() {
   try   { return JSON.parse(localStorage.getItem(REPORTS_LS_KEY) || '[]'); }
   catch { return []; }
+}
+
+function _loadReportsFull() {
+  try   { return JSON.parse(localStorage.getItem(REPORTS_FULL_LS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function _saveReportsFull(map) {
+  try { localStorage.setItem(REPORTS_FULL_LS_KEY, JSON.stringify(map || {})); }
+  catch (e) { console.warn('보고서 full blob 저장 실패:', e); }
+}
+
+/**
+ * 2공정 파이프라인이 실제로 사용할 최소 full blob.
+ * result 전체를 그대로 저장하면 용량이 크므로 필요한 필드만 뽑는다.
+ */
+function _buildReportFullBlob(result) {
+  if (!result || typeof result !== 'object') return null;
+  const pc   = result.price_comparison || {};
+  const same = Array.isArray(pc.same_ingredient) ? pc.same_ingredient : [];
+  const comp = Array.isArray(pc.competitors)     ? pc.competitors     : [];
+  const keep = rows => rows.slice(0, 30).map(r => ({
+    trade_name: r.trade_name || '',
+    strength:   r.strength   || '',
+    price:      (typeof r.price === 'number') ? r.price : null,
+    currency:   r.currency || 'SAR',
+    source:     r.source   || '',
+    type:       r.type     || '',
+  }));
+  return {
+    trade_name:  result.trade_name  || result.product_id || '',
+    ingredient:  result.inn         || result.ingredient || '',
+    strength:    result.strength    || '',
+    dosage_form: result.dosage_form || '',
+    hs_code:     result.hs_code     || null,
+    price_sar:   (result.price_comparison?.summary?.avg ?? null),
+    price_comparison: {
+      same_ingredient: keep(same),
+      competitors:     keep(comp),
+    },
+  };
 }
 
 /**
@@ -286,8 +328,9 @@ function _loadReports() {
  */
 function _addReportEntry(result, pdfName) {
   const reports = _loadReports();
+  const id      = Date.now();
   const entry   = {
-    id:        Date.now(),
+    id,
     product:   result ? (result.trade_name || result.product_id || '알 수 없음') : '알 수 없음',
     inn:       result ? (INN_MAP[result.product_id] || result.inn || '') : '',
     verdict:   result ? (result.verdict || '—') : '—',
@@ -299,7 +342,17 @@ function _addReportEntry(result, pdfName) {
   };
 
   reports.unshift(entry);
-  localStorage.setItem(REPORTS_LS_KEY, JSON.stringify(reports.slice(0, 30)));
+  const trimmed = reports.slice(0, 30);
+  localStorage.setItem(REPORTS_LS_KEY, JSON.stringify(trimmed));
+
+  // full blob은 요약 리스트의 id 집합만 유지 (잘린 항목 자동 정리)
+  const full = _loadReportsFull();
+  const blob = _buildReportFullBlob(result);
+  if (blob) full[String(id)] = blob;
+  const keepIds = new Set(trimmed.map(r => String(r.id)));
+  for (const k of Object.keys(full)) if (!keepIds.has(k)) delete full[k];
+  _saveReportsFull(full);
+
   renderReportTab();
 }
 
@@ -894,8 +947,7 @@ function setP2InputMode(mode, el) {
   if (stepM)  stepM.style.display  = _p2InputMode === 'manual' ? 'block' : 'none';
 
   _p2HideError();
-  const stub = document.getElementById('p2-result-stub');
-  if (stub) stub.style.display = 'none';
+  _p2HideResults();
   _p2UpdateRunEnabled();
 }
 
@@ -912,6 +964,7 @@ function setP2Market(market, el) {
   if (hPrv) hPrv.style.display = _p2Market === 'private' ? 'block' : 'none';
 
   _p2HideError();
+  _p2HideResults();
   _p2UpdateRunEnabled();
 }
 
@@ -1010,13 +1063,31 @@ function _bindP2Inputs() {
   if (man) man.addEventListener('input', () => { _p2HideError(); _p2UpdateRunEnabled(); });
 }
 
+let _p2LastPayload = null;   // override 재호출용 (파일 원본 포함)
+let _p2OverrideTimer = null; // debounce
+let _p2Running = false;
+
+function _p2HideResults() {
+  const pub = document.getElementById('p2-result-public');
+  const prv = document.getElementById('p2-result-private');
+  if (pub) pub.style.display = 'none';
+  if (prv) prv.style.display = 'none';
+  const stub = document.getElementById('p2-result-stub');
+  if (stub) stub.style.display = 'none';
+}
+
 async function runP2PriceAnalysis() {
   const btn  = document.getElementById('p2-btn-run');
   const icon = document.getElementById('p2-btn-icon');
-  const stub = document.getElementById('p2-result-stub');
   _p2HideError();
-  if (stub) stub.style.display = 'none';
+  _p2HideResults();
 
+  if (_p2InputMode === 'manual' && _p2Market === 'private') {
+    _p2ShowError('민간 시장 분석은 저장된 1공정 보고서 또는 PDF가 필요합니다. 직접 입력 모드는 v1에서 공공 시장만 지원합니다.');
+    return;
+  }
+
+  let reportFullBlob = null;
   if (_p2InputMode === 'ai') {
     const sel = document.getElementById('p2-report-select');
     const inp = document.getElementById('p2-pdf-input');
@@ -1025,6 +1096,14 @@ async function runP2PriceAnalysis() {
     if (!hasRep && !hasPdf) {
       _p2ShowError('저장된 1공정 보고서를 선택하거나 PDF를 업로드하세요.');
       return;
+    }
+    if (hasRep) {
+      const full = _loadReportsFull();
+      reportFullBlob = full[String(sel.value)] || null;
+      if (!reportFullBlob && _p2Market === 'private') {
+        _p2ShowError('이 보고서는 2공정 재분석에 필요한 데이터가 없습니다 (구버전). 1공정을 다시 실행하거나 PDF 업로드를 사용하세요.');
+        return;
+      }
     }
   } else {
     const man = document.getElementById('p2-manual-product');
@@ -1040,34 +1119,266 @@ async function runP2PriceAnalysis() {
   if (_p2InputMode === 'ai') {
     const sel = document.getElementById('p2-report-select');
     if (sel && sel.value) fd.append('report_id', sel.value);
+    if (reportFullBlob) fd.append('report_data', JSON.stringify(reportFullBlob));
     const inp = document.getElementById('p2-pdf-input');
     if (inp && inp.files && inp.files[0]) fd.append('pdf', inp.files[0]);
   } else {
     fd.append('manual_product', document.getElementById('p2-manual-product').value.trim());
   }
 
+  _p2LastPayload = {
+    input_mode: _p2InputMode,
+    market_type: _p2Market,
+    report_id: (document.getElementById('p2-report-select') || {}).value || null,
+    report_data: reportFullBlob,
+    manual_product: _p2InputMode === 'manual' ? document.getElementById('p2-manual-product').value.trim() : null,
+    pdf_file: (document.getElementById('p2-pdf-input')?.files || [])[0] || null,
+  };
+
+  await _p2PerformRequest(fd);
+}
+
+async function _p2PerformRequest(fd) {
+  if (_p2Running) return;
+  _p2Running = true;
+  const btn  = document.getElementById('p2-btn-run');
+  const icon = document.getElementById('p2-btn-icon');
   if (btn) btn.disabled = true;
   if (icon) icon.textContent = '⏳';
 
   try {
     const res = await fetch('/api/p2/price-analyze', { method: 'POST', body: fd });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    if (!res.ok || data.ok === false) {
       _p2ShowError(data.detail || data.message || `요청 실패 (${res.status})`);
       return;
     }
-    if (data.ok && stub) {
-      stub.textContent = data.message || '처리되었습니다.';
-      stub.style.display = 'block';
+    if ((data.market_type || _p2Market) === 'private') {
+      _p2RenderPrivate(data);
     } else {
-      _p2ShowError(data.detail || data.message || '응답을 해석할 수 없습니다.');
+      _p2RenderPublicStub(data);
     }
   } catch (e) {
     console.warn('2공정 분석 요청 실패:', e);
     _p2ShowError('네트워크 오류 — 잠시 후 다시 시도해 주세요.');
   } finally {
+    _p2Running = false;
     if (icon) icon.textContent = '▶';
     _p2UpdateRunEnabled();
+  }
+}
+
+function _p2RebuildFormData(overrides) {
+  const p = _p2LastPayload;
+  if (!p) return null;
+  const fd = new FormData();
+  fd.append('input_mode', p.input_mode);
+  fd.append('market_type', p.market_type);
+  if (p.report_id) fd.append('report_id', p.report_id);
+  if (p.report_data) fd.append('report_data', JSON.stringify(p.report_data));
+  if (p.manual_product) fd.append('manual_product', p.manual_product);
+  if (p.pdf_file) fd.append('pdf', p.pdf_file);
+  if (overrides && Object.keys(overrides).length) {
+    fd.append('overrides', JSON.stringify(overrides));
+  }
+  return fd;
+}
+
+function _p2ScheduleOverrideRerun() {
+  if (_p2OverrideTimer) clearTimeout(_p2OverrideTimer);
+  _p2OverrideTimer = setTimeout(() => {
+    const overrides = _p2CollectOverrides();
+    const fd = _p2RebuildFormData(overrides);
+    if (fd) _p2PerformRequest(fd);
+  }, 300);
+}
+
+function _p2CollectOverrides() {
+  const out = {};
+  for (const scen of ['aggressive', 'average', 'conservative']) {
+    const a = document.getElementById(`p2-ov-agent-${scen}`);
+    const f = document.getElementById(`p2-ov-freight-${scen}`);
+    const entry = {};
+    if (a && a.value.trim() !== '') {
+      const v = parseFloat(a.value);
+      if (!Number.isNaN(v)) entry.agent_commission_pct = v / 100;
+    }
+    if (f && f.value.trim() !== '') {
+      const v = parseFloat(f.value);
+      if (!Number.isNaN(v)) entry.freight_multiplier = v;
+    }
+    if (Object.keys(entry).length) out[scen] = entry;
+  }
+  return out;
+}
+
+function _p2RenderPublicStub(data) {
+  const stub = document.getElementById('p2-result-stub');
+  if (!stub) return;
+  stub.textContent = data.message || '공공 시장 파이프라인은 곧 연결됩니다.';
+  stub.style.display = 'block';
+}
+
+const _P2_SCEN_META = {
+  aggressive:   { label: '공격적 (1위)',    cls: 'p2-scen-agg'  },
+  average:      { label: '평균 (2위)',      cls: 'p2-scen-avg'  },
+  conservative: { label: '보수적 (3위)',    cls: 'p2-scen-con'  },
+};
+
+function _fmtSar(v) { return v == null ? '—' : `${Number(v).toFixed(2)} SAR`; }
+function _fmtUsd(v) { return v == null ? '—' : `${Number(v).toFixed(2)} USD`; }
+function _fmtKrw(v) { return v == null ? '—' : `${Math.round(Number(v)).toLocaleString('ko-KR')} KRW`; }
+function _fmtPct(v) { return `${(Number(v || 0) * 100).toFixed(1)}%`; }
+
+function _p2RenderPrivate(data) {
+  const host = document.getElementById('p2-result-private');
+  if (!host) return;
+  host.style.display = 'block';
+  host.innerHTML = '';
+
+  const prod = data.product || {};
+  const cls  = data.classification || {};
+  const stats = data.competitor_stats || {};
+  const fx    = data.exchange_rates || {};
+  const reg   = data.regulatory_cost || {};
+  const notes = Array.isArray(data.notes) ? data.notes : [];
+  const scens = Array.isArray(data.scenarios) ? data.scenarios : [];
+
+  const header = document.createElement('div');
+  header.className = 'p2-priv-header';
+  header.innerHTML = `
+    <div class="p2-priv-title">
+      <div class="p2-priv-name">${_escHtml(prod.trade_name || '알 수 없음')}</div>
+      <div class="p2-priv-meta">
+        ${_escHtml(prod.ingredient || '')} · ${_escHtml(prod.strength || '')} · ${_escHtml(prod.dosage_form || '')}
+      </div>
+    </div>
+    <div class="p2-priv-tags">
+      <span class="p2-tag">${_escHtml(cls.product_kind || 'generic')}</span>
+      ${cls.is_combination ? '<span class="p2-tag p2-tag-warn">복합제</span>' : ''}
+      ${cls.is_extended_release ? '<span class="p2-tag">ER/CR</span>' : ''}
+      <span class="p2-tag p2-tag-muted">HS ${_escHtml(prod.hs_code || '미확정')}</span>
+    </div>
+  `;
+  host.appendChild(header);
+
+  // 시나리오 카드 3개
+  const row = document.createElement('div');
+  row.className = 'p2-scen-row';
+  scens.forEach(s => {
+    const meta = _P2_SCEN_META[s.scenario] || { label: s.label || s.scenario, cls: '' };
+    const fob  = s.fob || {};
+    const steps = (s.steps || []).map(st => `
+      <tr>
+        <td>${_escHtml(st.label || st.step)}</td>
+        <td class="num">${_fmtSar(st.sar)}</td>
+        <td class="num">${_fmtUsd(st.usd)}</td>
+        <td class="num">${_fmtKrw(st.krw)}</td>
+      </tr>
+    `).join('');
+    const errBlock = s.error
+      ? `<div class="p2-scen-error">${_escHtml(s.error)}</div>`
+      : '';
+    const card = document.createElement('article');
+    card.className = `p2-scen-card ${meta.cls}`;
+    card.innerHTML = `
+      <div class="p2-scen-head">
+        <div class="p2-scen-label">${_escHtml(meta.label)}</div>
+        <div class="p2-scen-rank">rank ${s.rank}</div>
+      </div>
+      <div class="p2-scen-retail">Retail base: ${_fmtSar(s.retail_sar)} <span class="p2-muted">(${_escHtml(s.retail_base_key)})</span></div>
+      <div class="p2-scen-fob">
+        <div class="p2-scen-fob-main">${_fmtSar(fob.sar)}</div>
+        <div class="p2-scen-fob-sub">${_fmtUsd(fob.usd)} · ${_fmtKrw(fob.krw)}</div>
+      </div>
+      ${errBlock}
+      <details class="p2-scen-steps">
+        <summary>단계별 역산 보기</summary>
+        <table class="p2-scen-table">
+          <thead><tr><th>단계</th><th>SAR</th><th>USD</th><th>KRW</th></tr></thead>
+          <tbody>${steps}</tbody>
+        </table>
+      </details>
+      <div class="p2-scen-overrides">
+        <label>에이전트 수수료(%)
+          <input type="number" step="0.1" min="0" max="50"
+                 id="p2-ov-agent-${s.scenario}"
+                 value="${(Number(s.agent_commission_pct || 0) * 100).toFixed(1)}"/>
+        </label>
+        <label>운임 배수
+          <input type="number" step="0.05" min="0" max="5"
+                 id="p2-ov-freight-${s.scenario}"
+                 value="${Number(s.freight_multiplier || 1).toFixed(2)}"/>
+        </label>
+      </div>
+      <div class="p2-scen-foot">
+        port fee: ${_fmtSar(s.port_fee_sar)} · freight base: ${_fmtSar(s.freight_base_sar)}
+      </div>
+    `;
+    row.appendChild(card);
+  });
+  host.appendChild(row);
+
+  // 경쟁가 분포
+  const dist = document.createElement('article');
+  dist.className = 'p2-priv-panel';
+  const samplesHtml = (stats.samples || []).map(sm => `
+    <tr>
+      <td>${_escHtml(sm.trade_name || '—')}</td>
+      <td>${_escHtml(sm.strength || '')}</td>
+      <td class="num">${_fmtSar(sm.price_sar)}</td>
+      <td>${_escHtml(sm.origin || '')}</td>
+    </tr>
+  `).join('');
+  dist.innerHTML = `
+    <div class="p2-priv-panel-head">경쟁가 분포 (${stats.count || 0}건 · ${_escHtml(stats.mode || '')})</div>
+    <div class="p2-priv-quartiles">
+      <div><span>p25</span>${_fmtSar(stats.p25_sar)}</div>
+      <div><span>median</span>${_fmtSar(stats.median_sar)}</div>
+      <div><span>p75</span>${_fmtSar(stats.p75_sar)}</div>
+    </div>
+    <table class="p2-scen-table">
+      <thead><tr><th>제품</th><th>함량</th><th>가격</th><th>출처</th></tr></thead>
+      <tbody>${samplesHtml || '<tr><td colspan="4" class="p2-muted">표본 없음</td></tr>'}</tbody>
+    </table>
+  `;
+  host.appendChild(dist);
+
+  // 규제비/환율 패널
+  const reg2 = document.createElement('article');
+  reg2.className = 'p2-priv-panel';
+  reg2.innerHTML = `
+    <div class="p2-priv-panel-head">규제비 · 환율</div>
+    <div class="p2-priv-reg">
+      <div>SFDA 등록 감가상각(연): ${_fmtKrw(reg.sfda_amort_per_year_krw)} / ${_fmtSar(reg.sfda_amort_per_year_sar)}</div>
+      <div>SABER 등록 감가상각(연): ${_fmtKrw(reg.saber_amort_per_year_krw)} / ${_fmtSar(reg.saber_amort_per_year_sar)}</div>
+      <div>항만료(시나리오별 고정): ${_fmtSar(reg.port_fee_sar)}</div>
+      <div class="p2-muted">※ FOB에서 차감하지 않고 수익 모델에 별도 반영</div>
+    </div>
+    <div class="p2-priv-fx">
+      환율: 1 SAR = ${Number(fx.sar_krw || 0).toFixed(2)} KRW · ${Number(fx.sar_usd || 0).toFixed(4)} USD
+      <span class="p2-muted">(${_escHtml(fx.source || 'unknown')})</span>
+    </div>
+  `;
+  host.appendChild(reg2);
+
+  // 노트
+  if (notes.length) {
+    const n = document.createElement('article');
+    n.className = 'p2-priv-panel p2-priv-notes';
+    n.innerHTML = `
+      <div class="p2-priv-panel-head">주의/경고</div>
+      <ul>${notes.map(x => `<li>${_escHtml(x)}</li>`).join('')}</ul>
+    `;
+    host.appendChild(n);
+  }
+
+  // 오버라이드 입력 바인딩 (debounce 재호출)
+  for (const scen of ['aggressive', 'average', 'conservative']) {
+    for (const kind of ['agent', 'freight']) {
+      const el = document.getElementById(`p2-ov-${kind}-${scen}`);
+      if (el) el.addEventListener('input', _p2ScheduleOverrideRerun);
+    }
   }
 }
 
