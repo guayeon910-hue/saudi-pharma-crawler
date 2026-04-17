@@ -1385,3 +1385,293 @@ button.p3-btn-secondary {
 ::-webkit-scrollbar       { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(23, 63, 120, .15); border-radius: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   25. 2공정 · 민간 시장 FOB 역산 결과 (p2-result-private)
+   ══════════════════════════════════════════════════════════════════════ */
+
+.p2-result-public,
+.p2-result-private {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 헤더 (품목 + 태그) */
+.p2-priv-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #f6f8fb 0%, #eef2f7 100%);
+  border-radius: 8px;
+}
+.p2-priv-title { min-width: 0; flex: 1 1 auto; }
+.p2-priv-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: #173f78;
+  margin-bottom: 2px;
+  word-break: break-word;
+}
+.p2-priv-meta {
+  font-size: 12px;
+  color: var(--muted, #64748b);
+}
+.p2-priv-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.p2-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #e0edff;
+  color: #173f78;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.p2-tag-warn {
+  background: #fff1d6;
+  color: #a15c00;
+}
+.p2-tag-muted {
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* 시나리오 3카드 */
+.p2-scen-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .p2-scen-row { grid-template-columns: 1fr; }
+}
+
+.p2-scen-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.p2-scen-card.p2-scen-agg { border-top: 3px solid #f97316; }
+.p2-scen-card.p2-scen-avg { border-top: 3px solid #173f78; }
+.p2-scen-card.p2-scen-con { border-top: 3px solid #10b981; }
+
+.p2-scen-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.p2-scen-label {
+  font-weight: 700;
+  color: #173f78;
+  font-size: 13px;
+}
+.p2-scen-rank {
+  font-size: 11px;
+  color: var(--muted, #64748b);
+  padding: 2px 8px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.p2-scen-retail {
+  font-size: 12px;
+  color: #334155;
+}
+
+.p2-scen-fob {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  text-align: center;
+}
+.p2-scen-fob-main {
+  font-size: 20px;
+  font-weight: 700;
+  color: #173f78;
+  letter-spacing: -0.3px;
+}
+.p2-scen-fob-sub {
+  font-size: 11px;
+  color: var(--muted, #64748b);
+  margin-top: 2px;
+}
+
+.p2-scen-error {
+  padding: 8px 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.p2-scen-steps {
+  font-size: 12px;
+}
+.p2-scen-steps summary {
+  cursor: pointer;
+  color: #173f78;
+  font-weight: 600;
+  padding: 4px 0;
+  list-style: none;
+}
+.p2-scen-steps summary::-webkit-details-marker { display: none; }
+.p2-scen-steps summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 4px;
+  transition: transform 0.15s ease;
+}
+.p2-scen-steps[open] summary::before { transform: rotate(90deg); }
+
+.p2-scen-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+.p2-scen-table th,
+.p2-scen-table td {
+  padding: 5px 6px;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+}
+.p2-scen-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #475569;
+}
+.p2-scen-table td.num,
+.p2-scen-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 오버라이드 입력 */
+.p2-scen-overrides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+.p2-scen-overrides label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #475569;
+  font-weight: 500;
+}
+.p2-scen-overrides input {
+  padding: 5px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: #fff;
+}
+.p2-scen-overrides input:focus {
+  outline: none;
+  border-color: #173f78;
+  box-shadow: 0 0 0 2px rgba(23, 63, 120, 0.1);
+}
+
+.p2-scen-foot {
+  font-size: 11px;
+  color: var(--muted, #64748b);
+  padding-top: 4px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+/* 경쟁가/규제비 패널 */
+.p2-priv-panel {
+  padding: 12px 14px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.p2-priv-panel-head {
+  font-weight: 700;
+  font-size: 13px;
+  color: #173f78;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.p2-priv-quartiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.p2-priv-quartiles > div {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #173f78;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.p2-priv-quartiles span {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.p2-priv-reg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #334155;
+}
+.p2-priv-fx {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 12px;
+  color: #334155;
+}
+.p2-muted {
+  color: var(--muted, #64748b);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.p2-priv-notes ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #92400e;
+}
+.p2-priv-notes li { margin-bottom: 3px; }
+
+@media (max-width: 600px) {
+  .p2-priv-header { flex-direction: column; }
+  .p2-priv-tags { justify-content: flex-start; }
+  .p2-priv-quartiles { grid-template-columns: 1fr; }
+}
