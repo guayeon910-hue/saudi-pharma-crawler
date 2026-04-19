@@ -5,7 +5,22 @@
 
 ---
 
-## 빠른 실행
+## 프로덕션 (Render)
+
+**현재 이 앱은 [Render](https://render.com) 웹 서비스에 배포되어 운영 중이다.** GitHub 저장소와 연결된 경우 `master`에 푸시하면 Dockerfile 기준으로 빌드·재배포된다.
+
+| 항목 | 내용 |
+|------|------|
+| 접속 URL | Render 대시보드 → 해당 **Web Service** → 상단 URL (형식은 보통 `https://<서비스-이름>.onrender.com`) |
+| 헬스 체크 | `GET /healthz` → `{"status":"ok"}` |
+| 환경 변수 | Render → 해당 서비스 → **Environment** — 아래 「환경변수」표와 동일한 키를 설정 (`CLAUDE_API_KEY` 등) |
+| 주의 | 무료 플랜은 일정 시간 미사용 후 **콜드 스타트**로 첫 요청이 지연될 수 있다 |
+
+로컬에서만 돌릴 때는 아래 「로컬 실행」을 따른다.
+
+---
+
+## 로컬 실행
 
 ```bash
 cd C:\Users\user\Desktop\saudi-pharma-crawler
@@ -140,11 +155,14 @@ saudi-pharma-crawler/
 
 ---
 
-## Render 배포 시 주의
+## Render 배포 (신규·재설정 시)
 
-- **Root Directory**: 레포 루트 (`Dockerfile`과 `frontend/`가 보이는 경로).
-- **Start Command**: 비워두고 Dockerfile `CMD`만 사용.
-- **Health Check**: `GET /healthz` → `{"status":"ok"}`.
+이미 배포된 서비스를 바꾸지 않을 때는 건드릴 필요 없다. 새로 Render에 올리거나 설정을 맞출 때만 참고한다.
+
+- **Root Directory**: 레포 루트 (`Dockerfile`과 `frontend/`가 한 번에 보이는 경로). 서브폴더만 루트로 지정하면 안 된다.
+- **Start Command**: 비워 두고 **Dockerfile의 `CMD`**만 사용한다.
+- **Health Check Path**: `/healthz`
+- **Environment**: 로컬 `.env`와 같은 변수명으로 Render 대시보드에 등록한다 (Git에 시크릿 커밋 금지).
 
 ---
 
