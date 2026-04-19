@@ -38,6 +38,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # snippets + 루트 경로
 sys.path.insert(0, str(ROOT / "assets" / "snippets"))
@@ -46,6 +47,7 @@ sys.path.insert(0, str(ROOT))
 from drug_registry import DrugRegistry, TargetDrug
 from targeted_search import search_one_drug, AggregatedResult
 from frontend.dashboard_sites import SITES, get_initial_states
+from frontend.fob_private import run_private_pipeline
 
 logger = logging.getLogger("frontend.server")
 
@@ -78,6 +80,14 @@ _registry = DrugRegistry()
 _llm_client = None
 _pplx_client = None
 _sb_client = None
+
+
+class P3ProspectsRequest(BaseModel):
+    product_key: Optional[str] = None
+    trade_name: Optional[str] = None
+    ingredients: Optional[str] = None
+    dosage_form: Optional[str] = None
+    strength: Optional[str] = None
 
 
 def _reset_site_states() -> None:
@@ -1715,15 +1725,72 @@ async def api_news():
     return {"ok": True, "items": items}
 
 
+@app.post("/api/p3/prospects")
+async def api_p3_prospects(req: P3ProspectsRequest):
+    """3공정: 바이어/파트너 후보 소스(유통사/병원/조달처 등) URL을 Perplexity로 수집."""
+    pplx = _get_pplx()
+    if not pplx:
+        raise HTTPException(503, "PERPLEXITY_API_KEY 미설정")
+
+    drug: Optional[TargetDrug] = None
+    if req.product_key:
+        drug = _registry.get_drug(req.product_key)
+
+    trade_name = (req.trade_name or (drug.trade_name if drug else "")).strip()
+    ingredients = (req.ingredients or (drug.ingredient if drug else "")).strip()
+    dosage_form = (req.dosage_form or (drug.dosage_form if drug else "")).strip()
+    strength = (req.strength or (drug.strength if drug else "")).strip()
+
+    if not trade_name and not ingredients:
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "error": "trade_name 또는 ingredients 중 하나는 필요합니다."},
+        )
+
+    excluded_domains: set[str] = set()
+    for s in SITES:
+        d = (s.get("domain") or "").strip().lower()
+        if d:
+            excluded_domains.add(d)
+
+    drug_info = {
+        "trade_name": trade_name,
+        "ingredients": ingredients,
+        "dosage_form": dosage_form,
+        "strength": strength,
+    }
+
+    try:
+        items = await asyncio.to_thread(
+            pplx.search_pharma_sources,
+            drug_info,
+            excluded_domains,
+        )
+        items_sorted = sorted(
+            items,
+            key=lambda x: float(x.get("relevance_score") or 0.0),
+            reverse=True,
+        )
+        return {"ok": True, "count": len(items_sorted), "items": items_sorted}
+    except Exception as exc:
+        logger.warning("P3 prospects Perplexity 실패: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"ok": False, "error": f"Perplexity 요청 실패: {str(exc)[:160]}"},
+        )
+
+
 @app.post("/api/p2/price-analyze")
 async def api_p2_price_analyze(
     input_mode: str = Form(...),
     market_type: str = Form(...),
     report_id: Optional[str] = Form(default=None),
+    report_data: Optional[str] = Form(default=None),
+    overrides: Optional[str] = Form(default=None),
     manual_product: Optional[str] = Form(default=None),
     pdf: Optional[UploadFile] = File(default=None),
 ):
-    """2공정 가격 분석 — UI 연동용 스텁. 이후 Claude/파서 로직을 이 엔드포인트에 연결."""
+    """2공정 가격 분석 엔드포인트. 민간 시장(private)만 FOB 역산 로직을 수행한다."""
     im = (input_mode or "").strip().lower()
     mt = (market_type or "").strip().lower()
     if im not in ("ai", "manual"):
@@ -1738,10 +1805,54 @@ async def api_p2_price_analyze(
         )
 
     rid = (report_id or "").strip()
+    report_payload: Optional[dict] = None
+    overrides_payload: Optional[dict] = None
     man = (manual_product or "").strip()
     has_pdf = pdf is not None and bool((pdf.filename or "").strip())
+    pdf_bytes: Optional[bytes] = None
 
-    if im == "ai":
+    if report_data:
+        try:
+            parsed_report = json.loads(report_data)
+            if not isinstance(parsed_report, dict):
+                raise ValueError("report_data must be a JSON object")
+            report_payload = parsed_report
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "report_data는 JSON 객체 문자열이어야 합니다."},
+            )
+
+    if overrides:
+        try:
+            parsed_overrides = json.loads(overrides)
+            if not isinstance(parsed_overrides, dict):
+                raise ValueError("overrides must be a JSON object")
+            overrides_payload = parsed_overrides
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "overrides는 JSON 객체 문자열이어야 합니다."},
+            )
+
+    if mt == "private" and im == "manual":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "detail": "민간 시장은 v1에서 직접 입력을 지원하지 않습니다. 저장된 1공정 보고서 또는 PDF를 사용하세요.",
+            },
+        )
+
+    if mt == "private":
+        if not report_payload and not has_pdf:
+            detail = (
+                "선택한 저장 보고서에 전체 데이터가 없습니다. 1공정을 다시 실행하거나 PDF를 업로드하세요."
+                if rid
+                else "민간 시장은 저장된 1공정 전체 보고서(report_data) 또는 PDF 업로드가 필요합니다."
+            )
+            return JSONResponse(status_code=400, content={"ok": False, "detail": detail})
+    elif im == "ai":
         if not rid and not has_pdf:
             return JSONResponse(
                 status_code=400,
@@ -1763,6 +1874,7 @@ async def api_p2_price_analyze(
             )
         max_bytes = 8 * 1024 * 1024
         total = 0
+        chunks: list[bytes] = []
         while True:
             chunk = await pdf.read(65536)
             if not chunk:
@@ -1773,6 +1885,27 @@ async def api_p2_price_analyze(
                     status_code=413,
                     content={"ok": False, "detail": "PDF는 8MB 이하만 허용됩니다."},
                 )
+            chunks.append(chunk)
+        pdf_bytes = b"".join(chunks)
+
+    if mt == "private":
+        try:
+            exchange_rates = _fetch_exchange_rates()
+            llm = _get_llm()
+            result = run_private_pipeline(
+                report_data=report_payload,
+                pdf_bytes=pdf_bytes,
+                overrides=overrides_payload,
+                exchange_rates=exchange_rates,
+                llm=llm,
+            )
+            return result
+        except Exception as exc:
+            logger.exception("2공정 민간 시장 FOB 파이프라인 실패")
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "detail": f"민간 시장 FOB 역산 실패: {exc}"},
+            )
 
     return {
         "ok": True,

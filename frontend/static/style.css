@@ -1213,6 +1213,13 @@ select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
   color: var(--muted);
 }
 
+.p2-manual-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .p2-step2-row {
   display: flex;
   align-items: flex-start;
@@ -1262,6 +1269,316 @@ select:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
   line-height: 1.55;
 }
 
+.p2-result-area {
+  margin-top: 16px;
+}
+
+.p2-result-summary {
+  display: grid;
+  grid-template-columns: 1.5fr minmax(220px, .9fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.p2-summary-main,
+.p2-summary-side,
+.p2-reg-cost,
+.p2-scenario-card {
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--sh2);
+  padding: 18px 18px 16px;
+}
+
+.p2-summary-title {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.25;
+}
+
+.p2-summary-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.p2-summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.p2-summary-tag,
+.p2-warning-chip,
+.p2-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.p2-summary-tag {
+  background: rgba(23, 63, 120, .08);
+  color: var(--navy);
+}
+
+.p2-summary-rationale {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.p2-warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.p2-warning-chip {
+  background: rgba(240, 161, 58, .16);
+  color: #95560a;
+}
+
+.p2-stat-box {
+  border-radius: 14px;
+  background: rgba(23, 63, 120, .05);
+  padding: 14px 14px 12px;
+}
+
+.p2-stat-label {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+
+.p2-stat-line,
+.p2-stat-warning {
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.p2-stat-warning {
+  color: var(--orange2);
+  margin-top: 8px;
+  font-weight: 700;
+}
+
+.p2-scenarios-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.p2-scenario-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.p2-scenario-card.is-error {
+  box-shadow: 0 8px 24px rgba(202, 58, 61, .12);
+}
+
+.p2-scenario-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.p2-scenario-label {
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--navy);
+}
+
+.p2-scenario-meta {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.p2-rank-badge {
+  background: rgba(23, 63, 120, .08);
+  color: var(--navy);
+  flex-shrink: 0;
+}
+
+.p2-scenario-fob {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--navy);
+  letter-spacing: -.02em;
+}
+
+.p2-scenario-currencies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p2-scenario-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.p2-scenario-stats span {
+  border-radius: 999px;
+  background: rgba(23, 63, 120, .05);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.p2-scenario-error {
+  border-radius: 12px;
+  background: rgba(202, 58, 61, .08);
+  color: var(--red);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.p2-steps-details {
+  border-radius: 12px;
+  background: rgba(23, 63, 120, .04);
+  padding: 10px 12px 12px;
+}
+
+.p2-steps-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--navy);
+  list-style: none;
+}
+
+.p2-steps-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.p2-steps-table-wrap {
+  margin-top: 10px;
+}
+
+.p2-steps-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.p2-steps-table th,
+.p2-steps-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(23, 63, 120, .08);
+  font-size: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.p2-steps-table th:last-child,
+.p2-steps-table td:last-child {
+  text-align: right;
+  padding-left: 14px;
+}
+
+.p2-steps-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.p2-overrides {
+  border-top: 1px solid rgba(23, 63, 120, .08);
+  padding-top: 12px;
+}
+
+.p2-overrides-title {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--navy);
+  margin-bottom: 10px;
+}
+
+.p2-override-field + .p2-override-field {
+  margin-top: 10px;
+}
+
+.p2-override-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+
+.p2-override-value {
+  color: var(--muted);
+}
+
+.p2-override-input {
+  width: 100%;
+}
+
+.p2-reg-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.p2-reg-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--navy);
+}
+
+.p2-reg-value {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--navy);
+  white-space: nowrap;
+}
+
+.p2-reg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.p2-notes {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.p2-note-item {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 /* ── 21c. 3공정 · 바이어 발굴 (안내 카드) ───────────────────────────────── */
 .p3-stack {
   max-width: 720px;
@@ -1291,6 +1608,170 @@ button.p3-btn-secondary {
   border: none;
   cursor: pointer;
   font-family: inherit;
+}
+
+.p3-form {
+  margin-top: 8px;
+}
+
+.p3-form-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.p3-select {
+  width: 100%;
+}
+
+.p3-input {
+  flex: 1;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--inner);
+  color: var(--text);
+  outline: none;
+  box-shadow: var(--sh3);
+  transition: box-shadow .15s;
+  min-width: 220px;
+}
+
+.p3-input:focus { box-shadow: 0 0 0 3px rgba(23, 63, 120, .15); }
+.p3-input::placeholder { color: var(--muted); }
+
+.p3-inline-error {
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--red);
+}
+
+.p3-results {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.p3-empty {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(23, 63, 120, .06);
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.p3-item {
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--sh2);
+  padding: 14px 14px 12px;
+}
+
+.p3-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.p3-item-title {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.35;
+}
+
+.p3-open {
+  padding: 8px 14px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.p3-item-url {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p3-item-desc {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.65;
+}
+
+.p3-tags {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.p3-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 900;
+  background: rgba(23, 63, 120, .08);
+  color: var(--navy);
+}
+
+.p3-tag.gray  { background: rgba(23, 63, 120, .05); color: var(--muted); }
+.p3-tag.green { background: rgba(45, 152, 112, .12); color: var(--green); }
+.p3-tag.blue  { background: rgba(58, 130, 240, .12); color: #2054b5; }
+
+.p3-cache {
+  margin-top: 14px;
+  border-radius: 16px;
+  background: rgba(23, 63, 120, .04);
+  padding: 12px;
+}
+
+.p3-cache-title {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+
+.p3-cache-list {
+  display: grid;
+  gap: 8px;
+}
+
+.p3-cache-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--sh3);
+  padding: 10px 12px;
+}
+
+.p3-cache-item:hover { background: rgba(23, 63, 120, .04); }
+
+.p3-cache-item-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.35;
+}
+
+.p3-cache-item-meta {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 /* ── 21. 빈 페이지 (잔여 플레이스홀더용) ───────────────────────────────── */
@@ -1360,6 +1841,11 @@ button.p3-btn-secondary {
     grid-column: auto;
     grid-row: auto;
   }
+  .p2-result-summary,
+  .p2-scenarios-grid,
+  .p2-reg-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1385,3 +1871,145 @@ button.p3-btn-secondary {
 ::-webkit-scrollbar       { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(23, 63, 120, .15); border-radius: 2px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   25. 거시적 지표 (Macro Grid) — 참조(싱가포르) 섹션 26
+══════════════════════════════════════════════════════════════════════════ */
+.macro-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.macro-card {
+  background: var(--card);
+  border-radius: 20px;
+  box-shadow: var(--sh);
+  padding: 12px 14px 10px;
+}
+.macro-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 10px;
+  letter-spacing: -.01em;
+}
+.macro-value {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--navy);
+  letter-spacing: -.04em;
+  line-height: 1.05;
+  margin-bottom: 6px;
+}
+.macro-source {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   26. 지도 + 뉴스 그리드 — 참조(싱가포르) 섹션 27
+══════════════════════════════════════════════════════════════════════════ */
+.map-news-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.map-card-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.sg-leaflet-map {
+  height: 300px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex: 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   27. 공정 토글 섹션 — 참조(싱가포르) 섹션 28
+══════════════════════════════════════════════════════════════════════════ */
+.process-section {
+  background: var(--card);
+  border-radius: 20px;
+  box-shadow: var(--sh);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.process-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s;
+}
+.process-header:hover { background: rgba(23,63,120,.025); }
+.process-header-l {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.process-num {
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff;
+  background: var(--navy);
+  border-radius: 8px;
+  padding: 5px 11px;
+  flex-shrink: 0;
+  letter-spacing: .06em;
+}
+.process-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--navy);
+  letter-spacing: -.03em;
+  margin-bottom: 3px;
+}
+.process-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.process-arrow {
+  font-size: 20px;
+  color: var(--muted);
+  transition: transform .22s ease;
+  line-height: 1;
+}
+.process-arrow.closed { transform: rotate(-90deg); }
+
+.process-body {
+  padding: 0 16px 14px;
+  border-top: 1px solid rgba(23,63,120,.06);
+}
+.process-body.hidden { display: none; }
+
+.p1-result-note {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: rgba(45,152,112,.09);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+  line-height: 1.5;
+}
+.p1-result-note.err {
+  background: rgba(200,86,77,.08);
+  color: var(--red);
+}
+
+/* ── 반응형 추가 ────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .macro-grid    { grid-template-columns: repeat(2, 1fr); }
+  .map-news-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .macro-grid    { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .macro-value   { font-size: 22px; }
+  .process-header { padding: 16px 18px; }
+  .process-body  { padding: 0 16px 18px; }
+}
