@@ -62,8 +62,34 @@ const INN_MAP = {
  */
 const STEP_ORDER = ['db_load', 'analyze', 'refs', 'report'];
 
-let _pollTimer  = null;   // 파이프라인 폴링 타이머
+const PIPELINE_POLL_MS = 2500;
+
+let _pollTimer  = null;   // 파이프라인 폴링 예약(timeout) — setTimeout 체인만 사용
 let _currentKey = null;   // 현재 선택된 product_key
+/** 새 runPipeline 호출 시 증가. 오래된 폴링 콜백은 무시한다 */
+let _pipelineGen = 0;
+/** 폴링 완료 분기 1회 처리(레거시 보조) */
+let _pipelineHandlingDone = false;
+
+let _customPollTimer = null;
+let _customPipelineGen = 0;
+let _customPipelineHandlingDone = false;
+
+function _clearPipelinePollTimer() {
+  if (_pollTimer != null) {
+    clearTimeout(_pollTimer);
+    clearInterval(_pollTimer);
+    _pollTimer = null;
+  }
+}
+
+function _clearCustomPollTimer() {
+  if (_customPollTimer != null) {
+    clearTimeout(_customPollTimer);
+    clearInterval(_customPollTimer);
+    _customPollTimer = null;
+  }
+}
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    §2. 탭 전환 (N1)
@@ -308,8 +334,12 @@ function _renderCustomTodos(state) {
 const REPORTS_LS_KEY = 'sg_upharma_reports_v1';
 const REPORTS_FULL_LS_KEY = 'sg_upharma_reports_full_v1';
 
+/** _addReportEntry 직후 연속 동일 호출 방지(ms 이내 동일 품목·PDF) */
+let _lastReportDedupe = { fp: '', t: 0 };
+
 let _p2LastRequestState = null;
 let _p2OverrideTimer = null;
+let _p2Running = false;
 
 function _loadReportFullStore() {
   try   { return JSON.parse(localStorage.getItem(REPORTS_FULL_LS_KEY) || '{}'); }
@@ -400,6 +430,16 @@ function _buildReportFullBlob(result) {
  * @param {string|null} pdfName PDF 파일명
  */
 function _addReportEntry(result, pdfName) {
+  const prodKey = result ? String(result.product_id || result.trade_name || '') : '';
+  const pdfPart = pdfName ? String(pdfName).replace(/^.*[/\\]/, '') : '';
+  const fp = `${prodKey}|${pdfPart}`;
+  const now = Date.now();
+  if (_lastReportDedupe.fp === fp && (now - _lastReportDedupe.t) < 5000) {
+    populateP2ReportSelect();
+    return;
+  }
+  _lastReportDedupe = { fp, t: now };
+
   const reports = _loadReports();
   const entryId = Date.now();
   const entry   = {
@@ -532,6 +572,51 @@ function resetProgress() {
   }
 }
 
+/** 서버 FastAPI 오류 본문(detail)을 한 줄 문자열로 */
+function _formatApiDetail(payload) {
+  if (!payload || payload.detail === undefined || payload.detail === null) return '';
+  const det = payload.detail;
+  if (typeof det === 'string') return det;
+  if (Array.isArray(det)) {
+    return det.map((e) => (e && typeof e === 'object' && 'msg' in e ? e.msg : JSON.stringify(e))).join(' ');
+  }
+  return String(det);
+}
+
+function _isFileOrigin() {
+  return window.location.protocol === 'file:';
+}
+
+function _showP1PipelineError(message) {
+  const el = document.getElementById('p1-result-note');
+  if (!el) return;
+  el.style.display = 'block';
+  el.className = 'p1-result-note err';
+  el.textContent = message;
+}
+
+function _hideP1PipelineNote() {
+  const el = document.getElementById('p1-result-note');
+  if (!el) return;
+  el.style.display = 'none';
+  el.textContent = '';
+  el.className = 'p1-result-note';
+}
+
+/** 파이프라인 오류 시 어느 progress 칸에 ✕를 넣을지 (구버전 서버 step=crawl 호환) */
+function _pipelineErrorProgressStep(step, stepLabel) {
+  if (step === 'db_load' || step === 'crawl') return 'db_load';
+  if (STEP_ORDER.includes(step)) return step;
+  if (step === 'error') {
+    const lab = String(stepLabel || '');
+    if (/크롤|DB|적재|Supabase|조회/i.test(lab)) return 'db_load';
+    if (/Claude|분석/i.test(lab)) return 'analyze';
+    if (/참고|논문|Perplexity|refs/i.test(lab)) return 'refs';
+    if (/보고서|PDF|report/i.test(lab)) return 'report';
+  }
+  return 'analyze';
+}
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    §8. 파이프라인 실행 & 폴링
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -544,6 +629,9 @@ async function runPipeline() {
   const productKey = document.getElementById('product-select').value;
   _currentKey      = productKey;
 
+  _clearPipelinePollTimer();
+  const gen = ++_pipelineGen;
+
   // UI 초기화
   resetProgress();
   document.getElementById('result-card').classList.remove('visible');
@@ -555,6 +643,10 @@ async function runPipeline() {
   const reBtn = document.getElementById('btn-reanalyze');
   if (reBtn) reBtn.style.display = 'none';
 
+  _hideP1PipelineNote();
+
+  _pipelineHandlingDone = false;
+
   // B2: db_load 단계 먼저 활성화
   setProgress('db_load', 'running');
 
@@ -562,14 +654,25 @@ async function runPipeline() {
     const res = await fetch(`/api/pipeline/${encodeURIComponent(productKey)}`, { method: 'POST' });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      console.error('파이프라인 오류:', d.detail || res.status);
+      const detail = _formatApiDetail(d) || `HTTP ${res.status}`;
+      console.error('파이프라인 오류:', detail);
+      let msg = `파이프라인을 시작할 수 없습니다: ${detail}`;
+      if (_isFileOrigin()) {
+        msg = '페이지가 file:// 로 열려 API를 호출할 수 없습니다. 터미널에서 uvicorn을 실행한 뒤 주소창에 http://127.0.0.1:8000 을 입력하세요.';
+      }
+      _showP1PipelineError(msg);
       setProgress('db_load', 'error');
       _resetBtn();
       return;
     }
-    _pollTimer = setInterval(() => pollPipeline(productKey), 2500);
+    _pollTimer = setTimeout(() => pollPipeline(productKey, gen), PIPELINE_POLL_MS);
   } catch (e) {
     console.error('요청 실패:', e);
+    let msg = `서버에 연결하지 못했습니다 (${e && e.message ? e.message : '네트워크 오류'}). uvicorn이 http://127.0.0.1:8000 에서 실행 중인지 확인하세요.`;
+    if (_isFileOrigin()) {
+      msg = 'HTML 파일을 직접 연 경우(/로 시작하는 주소가 아닌 경우) 분석 API가 동작하지 않습니다. python -m uvicorn frontend.server:app --host 0.0.0.0 --port 8000 실행 후 브라우저에서 같은 포트로 접속하세요.';
+    }
+    _showP1PipelineError(msg);
     setProgress('db_load', 'error');
     _resetBtn();
   }
@@ -584,15 +687,34 @@ function _resetBtn() {
  * GET /api/pipeline/{product_key}/status 를 주기적으로 폴링.
  * 서버 step: init → db_load → analyze → refs → report → done
  */
-async function pollPipeline(productKey) {
+async function pollPipeline(productKey, gen) {
+  if (gen !== _pipelineGen) return;
   try {
     const res = await fetch(`/api/pipeline/${encodeURIComponent(productKey)}/status`);
-    const d   = await res.json();
+    if (gen !== _pipelineGen) return;
+    if (!res.ok) {
+      _pipelineHandlingDone = false;
+      _clearPipelinePollTimer();
+      const raw = await res.json().catch(() => ({}));
+      const detail = _formatApiDetail(raw) || `HTTP ${res.status}`;
+      _showP1PipelineError(`상태 조회 실패: ${detail}. 서버를 재시작했거나 세션이 끊겼을 수 있습니다.`);
+      setProgress('db_load', 'error');
+      _resetBtn();
+      return;
+    }
+    const d = await res.json();
+    if (gen !== _pipelineGen) return;
 
-    if (d.status === 'idle') return;
+    if (d.status === 'idle') {
+      if (gen !== _pipelineGen) return;
+      _pollTimer = setTimeout(() => pollPipeline(productKey, gen), PIPELINE_POLL_MS);
+      return;
+    }
 
-    // B2: 서버 step → 프론트 STEP_ORDER 매핑
-    if      (d.step === 'db_load')  { setProgress('db_load',  'running'); }
+    // B2: 서버 step → 프론트 STEP_ORDER 매핑 (구버전 step 이름 crawl 호환)
+    if      (d.step === 'db_load' || d.step === 'crawl') {
+      setProgress('db_load', 'running');
+    }
     else if (d.step === 'analyze')  { setProgress('db_load',  'done'); setProgress('analyze', 'running'); }
     else if (d.step === 'refs')     { setProgress('analyze',  'done'); setProgress('refs',    'running'); }
     else if (d.step === 'report')   {
@@ -601,27 +723,43 @@ async function pollPipeline(productKey) {
     }
 
     if (d.status === 'done') {
-      clearInterval(_pollTimer);
+      if (gen !== _pipelineGen) return;
+      if (_pipelineHandlingDone) return;
+      _pipelineHandlingDone = true;
+      _clearPipelinePollTimer();
+      _hideP1PipelineNote();
       for (const s of STEP_ORDER) setProgress(s, 'done');
       const r2   = await fetch(`/api/pipeline/${encodeURIComponent(productKey)}/result`);
+      if (gen !== _pipelineGen) return;
       const data = await r2.json();
       renderResult(data.result, data.refs, data.pdf);
       _resetBtn();
+      return;
     }
 
     if (d.status === 'error') {
-      clearInterval(_pollTimer);
-      setProgress(STEP_ORDER.includes(d.step) ? d.step : 'analyze', 'error');
+      _pipelineHandlingDone = false;
+      _clearPipelinePollTimer();
+      const errStep = _pipelineErrorProgressStep(d.step, d.step_label);
+      setProgress(errStep, 'error');
+      const hint = d.step_label ? String(d.step_label) : '알 수 없는 오류';
+      _showP1PipelineError(`파이프라인 오류: ${hint}`);
       _resetBtn();
+      return;
     }
-  } catch (_) { /* 조용히 재시도 */ }
+
+    if (gen !== _pipelineGen) return;
+    _pollTimer = setTimeout(() => pollPipeline(productKey, gen), PIPELINE_POLL_MS);
+  } catch (_) {
+    if (gen !== _pipelineGen) return;
+    _pollTimer = setTimeout(() => pollPipeline(productKey, gen), PIPELINE_POLL_MS);
+  }
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    §9. 신약 분석 파이프라인
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-let _customPollTimer = null;
 const CUSTOM_STEP_ORDER = ['analyze', 'refs', 'report'];
 
 function _setCustomProgress(step, status) {
@@ -668,6 +806,9 @@ async function runCustomPipeline() {
   const dosage    = document.getElementById('custom-dosage').value.trim();
   if (!tradeName || !inn) { alert('약품명과 성분명을 입력하세요.'); return; }
 
+  _clearCustomPollTimer();
+  const cgen = ++_customPipelineGen;
+
   _resetCustomProgress();
   document.getElementById('result-card').classList.remove('visible');
   document.getElementById('papers-card').classList.remove('visible');
@@ -675,7 +816,7 @@ async function runCustomPipeline() {
   document.getElementById('btn-custom').disabled = true;
   document.getElementById('custom-icon').textContent = '⏳';
 
-  if (_customPollTimer) clearInterval(_customPollTimer);
+  _customPipelineHandlingDone = false;
   _setCustomProgress('analyze', 'running');
 
   try {
@@ -691,7 +832,7 @@ async function runCustomPipeline() {
       _resetCustomBtn();
       return;
     }
-    _customPollTimer = setInterval(_pollCustomPipeline, 2500);
+    _customPollTimer = setTimeout(() => _pollCustomPipeline(cgen), PIPELINE_POLL_MS);
   } catch (e) {
     console.error('요청 실패:', e);
     _setCustomProgress('analyze', 'error');
@@ -699,30 +840,50 @@ async function runCustomPipeline() {
   }
 }
 
-async function _pollCustomPipeline() {
+async function _pollCustomPipeline(gen) {
+  if (gen !== _customPipelineGen) return;
   try {
     const res = await fetch('/api/pipeline/custom/status');
+    if (gen !== _customPipelineGen) return;
     const d   = await res.json();
-    if (d.status === 'idle') return;
+    if (gen !== _customPipelineGen) return;
+    if (d.status === 'idle') {
+      if (gen !== _customPipelineGen) return;
+      _customPollTimer = setTimeout(() => _pollCustomPipeline(gen), PIPELINE_POLL_MS);
+      return;
+    }
 
     if      (d.step === 'analyze') { _setCustomProgress('analyze', 'running'); }
     else if (d.step === 'refs')    { _setCustomProgress('analyze', 'done'); _setCustomProgress('refs', 'running'); }
     else if (d.step === 'report')  { _setCustomProgress('refs', 'done'); _setCustomProgress('report', 'running'); _showReportLoading(); }
 
     if (d.status === 'done') {
-      clearInterval(_customPollTimer);
+      if (gen !== _customPipelineGen) return;
+      if (_customPipelineHandlingDone) return;
+      _customPipelineHandlingDone = true;
+      _clearCustomPollTimer();
       for (const s of CUSTOM_STEP_ORDER) _setCustomProgress(s, 'done');
       const r2   = await fetch('/api/pipeline/custom/result');
+      if (gen !== _customPipelineGen) return;
       const data = await r2.json();
       renderResult(data.result, data.refs, data.pdf);
       _resetCustomBtn();
+      return;
     }
     if (d.status === 'error') {
-      clearInterval(_customPollTimer);
+      _customPipelineHandlingDone = false;
+      _clearCustomPollTimer();
       _setCustomProgress(d.step || 'analyze', 'error');
       _resetCustomBtn();
+      return;
     }
-  } catch (_) { /* 조용히 재시도 */ }
+
+    if (gen !== _customPipelineGen) return;
+    _customPollTimer = setTimeout(() => _pollCustomPipeline(gen), PIPELINE_POLL_MS);
+  } catch (_) {
+    if (gen !== _customPipelineGen) return;
+    _customPollTimer = setTimeout(() => _pollCustomPipeline(gen), PIPELINE_POLL_MS);
+  }
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -793,6 +954,16 @@ function renderResult(result, refs, pdfName) {
     if (reBtn) reBtn.style.display = 'inline-flex';
 
     document.getElementById('result-card').classList.add('visible');
+
+    const p1Note = document.getElementById('p1-result-note');
+    if (p1Note) {
+      const displayName = result.trade_name || result.product_id || '분석';
+      const verdictLabel = result.verdict || '—';
+      p1Note.style.display = 'block';
+      p1Note.className = 'p1-result-note';
+      p1Note.textContent =
+        `✅ ${displayName} 분석 완료 — 판정: ${verdictLabel}. 상세 결과는 보고서 탭·아래 PDF 카드에서 확인할 수 있습니다.`;
+    }
 
     // N3: 1공정 완료 → Todo 자동 체크
     markTodoDone('p1');
@@ -999,17 +1170,14 @@ function _p2IsPrivateManualBlocked() {
 }
 
 function _p2ResetResultView(clear = false) {
-  const stub = document.getElementById('p2-result-stub');
-  const host = document.getElementById('p2-result-area');
-  if (stub) {
-    stub.style.display = 'none';
-    if (clear) stub.textContent = '';
-  }
-  if (host) {
-    host.style.display = 'none';
-    if (clear) host.innerHTML = '';
-  }
+  const sec = document.getElementById('p2-ai-result-section');
+  if (sec) sec.style.display = 'none';
+
   if (clear) {
+    const list = document.getElementById('p2-product-list');
+    if (list) list.innerHTML = '';
+    const dl = document.getElementById('p2-report-dl-state');
+    if (dl) dl.innerHTML = '';
     _p2LastRequestState = null;
     if (_p2OverrideTimer) clearTimeout(_p2OverrideTimer);
   }
@@ -1058,10 +1226,12 @@ function setP2Market(market, el) {
   if (pub) pub.classList.toggle('on', _p2Market === 'public');
   if (prv) prv.classList.toggle('on', _p2Market === 'private');
 
-  const hPub = document.getElementById('p2-market-hint-public');
-  const hPrv = document.getElementById('p2-market-hint-private');
-  if (hPub) hPub.style.display = _p2Market === 'public' ? 'block' : 'none';
-  if (hPrv) hPrv.style.display = _p2Market === 'private' ? 'block' : 'none';
+  const segDesc = document.getElementById('p2-ai-seg-desc');
+  if (segDesc) {
+    segDesc.textContent = _p2Market === 'public'
+      ? '공공 시장: NUPCO 등 조달·입찰·SFDA 기준 (스텁 응답).'
+      : '민간 시장: 병원·도매·소매 유통 기준 FOB 역산.';
+  }
 
   _p2HideError();
   _p2ResetResultView(false);
@@ -1076,7 +1246,7 @@ function populateP2ReportSelect() {
   const reports = _loadReports();
   const parts   = ['<option value="">저장된 1공정 보고서를 선택하세요</option>'];
   for (const r of reports) {
-    const label = `${_escHtml(r.product)} · ${_escHtml(r.timestamp)}`;
+    const label = `시장조사 보고서 - ${_escHtml(r.product)}`;
     parts.push(`<option value="${String(r.id)}">${label}</option>`);
   }
   sel.innerHTML = parts.join('');
@@ -1271,118 +1441,50 @@ function _p2RenderStepsTable(steps) {
     </div>`;
 }
 
-function _p2RenderScenarioCard(name, scenario) {
-  const fobClass = scenario.error ? ' is-error' : '';
-  return `
-    <article class="p2-scenario-card${fobClass}">
-      <div class="p2-scenario-head">
-        <div>
-          <div class="p2-scenario-label">${_escHtml(scenario.label || name)}</div>
-          <div class="p2-scenario-meta">
-            ${_escHtml(`진입 순위 ${scenario.entry_rank} · ${String(scenario.retail_basis || '').toUpperCase()} 기준 · Tier ${scenario.tier}`)}
-          </div>
-        </div>
-        <span class="p2-rank-badge">${_escHtml(`${scenario.entry_rank}위`)}</span>
-      </div>
-
-      <div class="p2-scenario-fob">${_p2FormatMoney(scenario.fob_sar, 'SAR')}</div>
-      <div class="p2-scenario-currencies">
-        <span>${_p2FormatMoney(scenario.fob_usd, 'USD')}</span>
-        <span>${_p2FormatMoney(scenario.fob_krw, 'KRW')}</span>
-      </div>
-
-      <div class="p2-scenario-stats">
-        <span>Retail ${_p2FormatMoney(scenario.retail_sar, 'SAR')}</span>
-        <span>운임 ${_p2FormatMoney(scenario.freight_insurance_sar, 'SAR')}</span>
-        <span>커미션 ${_p2FormatPct(scenario.agent_commission_pct)}</span>
-        <span>Port fee ${_p2FormatMoney(scenario.port_fee_sar, 'SAR')}</span>
-      </div>
-
-      ${scenario.error ? `<div class="p2-scenario-error">${_escHtml(scenario.error)}</div>` : ''}
-
-      <details class="p2-steps-details">
-        <summary>단계별 역산 보기</summary>
-        ${_p2RenderStepsTable(scenario.steps)}
-      </details>
-
-      <div class="p2-overrides" data-scenario-card="${_escHtml(name)}">
-        <div class="p2-overrides-title">시나리오 오버라이드</div>
-        <div class="p2-override-field">
-          <div class="p2-override-label">
-            에이전트 커미션
-            <span class="p2-override-value"></span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="15"
-            step="0.5"
-            value="${Number((scenario.agent_commission_pct || 0) * 100).toFixed(1)}"
-            class="p2-override-input"
-            data-scenario="${_escHtml(name)}"
-            data-field="agent_commission_pct"
-          />
-        </div>
-        <div class="p2-override-field">
-          <div class="p2-override-label">
-            운임 배수
-            <span class="p2-override-value"></span>
-          </div>
-          <input
-            type="range"
-            min="0.5"
-            max="2"
-            step="0.05"
-            value="${Number(scenario.freight_multiplier || 1).toFixed(2)}"
-            class="p2-override-input"
-            data-scenario="${_escHtml(name)}"
-            data-field="freight_multiplier"
-          />
-        </div>
-      </div>
-    </article>`;
-}
-
-function _p2SyncOverrideDisplay(input) {
-  const valueEl = input.closest('.p2-override-field')?.querySelector('.p2-override-value');
-  if (!valueEl) return;
-  if (input.dataset.field === 'agent_commission_pct') {
-    valueEl.textContent = `${Number(input.value).toFixed(1)}%`;
-  } else {
-    valueEl.textContent = `${Number(input.value).toFixed(2)}x`;
-  }
-}
-
-function _p2CollectOverridesFromDom() {
+function _p2CollectColumnOverrides() {
+  const map = { agg: 'aggressive', avg: 'average', cons: 'conservative' };
   const scenarios = {};
-  document.querySelectorAll('.p2-override-input').forEach(input => {
-    const scenario = input.dataset.scenario;
-    const field = input.dataset.field;
-    if (!scenario || !field) return;
-    if (!scenarios[scenario]) scenarios[scenario] = {};
-    const raw = Number(input.value);
-    scenarios[scenario][field] = field === 'agent_commission_pct' ? raw / 100 : raw;
-  });
+  for (const [col, name] of Object.entries(map)) {
+    const base = document.getElementById(`p2ci-base-${col}`);
+    const fee = document.getElementById(`p2ci-fee-${col}`);
+    const fr = document.getElementById(`p2ci-freight-${col}`);
+    if (!fee || !fr) continue;
+    const entry = {
+      agent_commission_pct: Number(fee.value) / 100,
+      freight_multiplier: Number(fr.value),
+    };
+    const rb = base ? Number(base.value) : NaN;
+    if (!Number.isNaN(rb) && rb > 0) {
+      entry.retail_base = rb;
+    }
+    scenarios[name] = entry;
+  }
   return { scenarios };
 }
 
-function _p2BindOverrideInputs() {
-  document.querySelectorAll('.p2-override-input').forEach(input => {
-    _p2SyncOverrideDisplay(input);
-    input.addEventListener('input', () => {
-      _p2SyncOverrideDisplay(input);
-      if (_p2OverrideTimer) clearTimeout(_p2OverrideTimer);
-      _p2OverrideTimer = setTimeout(() => {
-        if (!_p2LastRequestState || _p2LastRequestState.marketType !== 'private') return;
-        _submitP2Analysis({ useLastState: true, overrides: _p2CollectOverridesFromDom() });
-      }, 300);
-    });
-  });
+function toggleP2ColDetail(col) {
+  const detail = document.getElementById(`p2cd-${col}`);
+  const row = detail?.previousElementSibling;
+  const btn = row?.querySelector('.p2-col-expand-btn');
+  if (!detail) return;
+  const isHidden = detail.style.display === 'none';
+  detail.style.display = isHidden ? 'block' : 'none';
+  if (btn) {
+    btn.textContent = `${isHidden ? '▾' : '▸'} 역산 · 옵션 편집`;
+  }
+}
+
+function recalcP2Col(col) {
+  if (_p2Market !== 'private' || !_p2LastRequestState) return;
+  if (_p2OverrideTimer) clearTimeout(_p2OverrideTimer);
+  _p2OverrideTimer = setTimeout(() => {
+    _submitP2Analysis({ useLastState: true, overrides: _p2CollectColumnOverrides() });
+  }, 400);
 }
 
 function renderP2Result(data) {
-  const host = document.getElementById('p2-result-area');
-  if (!host) return;
+  const sec = document.getElementById('p2-ai-result-section');
+  if (!sec) return;
 
   const stats = data.competitor_stats || {};
   const product = data.product || {};
@@ -1390,64 +1492,137 @@ function renderP2Result(data) {
   const scenarios = data.scenarios || {};
   const notes = data.notes || [];
   const reg = data.regulatory_cost || {};
-  const scenarioOrder = ['aggressive', 'average', 'conservative'];
+  const pairs = [
+    { key: 'aggressive', col: 'agg' },
+    { key: 'average', col: 'avg' },
+    { key: 'conservative', col: 'cons' },
+  ];
 
-  host.innerHTML = `
-    <section class="p2-result-summary">
-      <div class="p2-summary-main">
-        <div class="p2-summary-title">${_escHtml(product.trade_name || '민간 시장 FOB 분석')}</div>
-        <div class="p2-summary-sub">${_escHtml([product.inn, product.strength, product.dosage_form].filter(Boolean).join(' · '))}</div>
-        <div class="p2-summary-tags">
-          <span class="p2-summary-tag">${_escHtml(`분류 ${classification.product_kind || 'generic'}`)}</span>
-          <span class="p2-summary-tag">${classification.is_combination ? '복합제' : '단일 성분'}</span>
-          <span class="p2-summary-tag">${classification.is_extended_release ? '서방형/개량신약' : '표준 제형'}</span>
-          <span class="p2-summary-tag">${_escHtml(product.hs_code || 'HS 코드 미상')}</span>
+  for (const { key, col } of pairs) {
+    const sc = scenarios[key] || {};
+    const priceEl = document.getElementById(`p2c-price-${col}`);
+    const subEl = document.getElementById(`p2c-sub-${col}`);
+    const baseInp = document.getElementById(`p2ci-base-${col}`);
+    const feeInp = document.getElementById(`p2ci-fee-${col}`);
+    const frInp = document.getElementById(`p2ci-freight-${col}`);
+    const stepsBody = document.getElementById(`p2-steps-body-${col}`);
+
+    if (sc.error) {
+      if (priceEl) priceEl.textContent = '—';
+      if (subEl) subEl.textContent = String(sc.error);
+    } else {
+      if (priceEl) {
+        priceEl.textContent = sc.fob_sar != null
+          ? Number(sc.fob_sar).toLocaleString('ko-KR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+          : '—';
+      }
+      if (subEl) {
+        const u = sc.fob_usd != null
+          ? Number(sc.fob_usd).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+          : '—';
+        const k = sc.fob_krw != null
+          ? Number(sc.fob_krw).toLocaleString('ko-KR', { maximumFractionDigits: 0 })
+          : '—';
+        subEl.textContent = `${u} USD · ${k} KRW`;
+      }
+      if (baseInp && sc.retail_sar != null) baseInp.value = String(sc.retail_sar);
+      if (feeInp && sc.agent_commission_pct != null) {
+        feeInp.value = String((Number(sc.agent_commission_pct) * 100).toFixed(1));
+      }
+      if (frInp && sc.freight_multiplier != null) {
+        frInp.value = String(Number(sc.freight_multiplier).toFixed(2));
+      }
+    }
+    if (stepsBody) {
+      stepsBody.innerHTML = _p2RenderStepsTable(sc.steps || []);
+    }
+  }
+
+  const prodList = document.getElementById('p2-product-list');
+  if (prodList) {
+    const title = _escHtml(product.trade_name || '민간 시장 FOB 분석');
+    const sub = _escHtml([product.inn, product.strength, product.dosage_form].filter(Boolean).join(' · '));
+    const ratFull = String(classification.rationale || '').trim();
+    const ratShort = ratFull.length > 320 ? `${ratFull.slice(0, 320)}…` : ratFull;
+    const tagParts = [
+      classification.product_kind ? `분류 ${classification.product_kind}` : '',
+      classification.is_combination ? '복합제' : '단일 성분',
+      classification.is_extended_release ? '서방형/개량신약' : '표준 제형',
+    ].filter(Boolean);
+
+    const distParts = ['min', 'p25', 'median', 'p75', 'max', 'avg'].map(k => {
+      const v = stats[k];
+      if (v == null || v === '') return '';
+      return `<span>${k}: ${_p2FormatMoney(v, 'SAR')}</span>`;
+    }).filter(Boolean);
+
+    let html = `
+      <div class="p2-result-meta">
+        <div class="p2-result-meta-title">${title}</div>
+        <div>${sub}</div>
+        ${tagParts.length ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">${_escHtml(tagParts.join(' · '))}</div>` : ''}
+        ${ratShort ? `<div style="margin-top:10px;line-height:1.6;">${_escHtml(ratShort)}</div>` : ''}
+        ${_p2RenderWarnings(classification.warnings || [])}
+        ${distParts.length ? `<div class="p2-dist-inline">${distParts.join('')}</div>` : ''}
+        ${stats.warning ? `<div style="margin-top:8px;font-size:12px;color:var(--orange2);font-weight:700;">${_escHtml(stats.warning)}</div>` : ''}
+      </div>`;
+
+    html += `
+      <table class="p2-prod-table">
+        <thead><tr><th>제품</th><th>식별</th><th>참고</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>${_escHtml(product.trade_name || '—')}</td>
+            <td>${_escHtml([product.inn, product.strength].filter(Boolean).join(' · ') || '—')}</td>
+            <td>${_escHtml(product.hs_code ? `HS ${product.hs_code}` : '—')}</td>
+          </tr>
+        </tbody>
+      </table>`;
+
+    const perUnit = reg.per_unit_amortization_sar != null
+      ? _p2FormatMoney(reg.per_unit_amortization_sar, 'SAR')
+      : '—';
+    html += `
+      <div class="p2-reg-cost" style="margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--inner);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;">
+          <span style="font-weight:900;color:var(--navy);">규제비 감가상각</span>
+          <span style="font-weight:800;color:var(--navy);">${perUnit} / unit</span>
         </div>
-        <p class="p2-summary-rationale">${_escHtml(classification.rationale || '')}</p>
-        ${_p2RenderWarnings(classification.warnings)}
-      </div>
-      <div class="p2-summary-side">
-        <div class="p2-stat-box">
-          <div class="p2-stat-label">경쟁가 분포</div>
-          <div class="p2-stat-line">min ${_p2FormatMoney(stats.min, 'SAR')}</div>
-          <div class="p2-stat-line">p25 ${_p2FormatMoney(stats.p25, 'SAR')}</div>
-          <div class="p2-stat-line">median ${_p2FormatMoney(stats.median, 'SAR')}</div>
-          <div class="p2-stat-line">p75 ${_p2FormatMoney(stats.p75, 'SAR')}</div>
-          <div class="p2-stat-line">max ${_p2FormatMoney(stats.max, 'SAR')}</div>
-          <div class="p2-stat-line">avg ${_p2FormatMoney(stats.avg, 'SAR')}</div>
-          ${stats.warning ? `<div class="p2-stat-warning">${_escHtml(stats.warning)}</div>` : ''}
+        <div style="margin-top:8px;font-size:12px;line-height:1.7;color:var(--muted);">
+          SFDA ${_p2FormatMoney(reg.sfda_registration_sar, 'SAR')}
+          · SABER PCoC ${_p2FormatMoney(reg.saber_pcoc_annual_sar, 'SAR')}
+          · SCoC(연) ${_p2FormatMoney(reg.saber_scoc_annual_sar, 'SAR')}
+          · 연간 수량 ${Number(reg.assumptions?.annual_units || 0).toLocaleString('ko-KR')}
         </div>
-      </div>
-    </section>
+      </div>`;
 
-    <section class="p2-scenarios-grid">
-      ${scenarioOrder.map(name => _p2RenderScenarioCard(name, scenarios[name] || {})).join('')}
-    </section>
+    if (notes.length) {
+      html += `<div class="p2-notes" style="margin-top:12px;">${notes.map(n => `<div class="p2-note-item">${_escHtml(n)}</div>`).join('')}</div>`;
+    }
 
-    <section class="p2-reg-cost">
-      <div class="p2-reg-head">
-        <div class="p2-reg-title">규제비 감가상각 요약</div>
-        <div class="p2-reg-value">${_p2FormatMoney(reg.per_unit_amortization_sar, 'SAR')} / unit</div>
-      </div>
-      <div class="p2-reg-grid">
-        <div>SFDA 등록비 ${_p2FormatMoney(reg.sfda_registration_sar, 'SAR')}</div>
-        <div>SABER PCoC ${_p2FormatMoney(reg.saber_pcoc_annual_sar, 'SAR')}</div>
-        <div>SABER SCoC(연간) ${_p2FormatMoney(reg.saber_scoc_annual_sar, 'SAR')}</div>
-        <div>가정 연간 수량 ${Number(reg.assumptions?.annual_units || 0).toLocaleString('ko-KR')}</div>
-        <div>가정 월 선적 ${Number(reg.assumptions?.monthly_shipments || 0).toLocaleString('ko-KR')}</div>
-      </div>
-      <div class="p2-notes">
-        ${notes.map(note => `<div class="p2-note-item">${_escHtml(note)}</div>`).join('')}
-      </div>
-    </section>`;
+    prodList.innerHTML = html;
+  }
 
-  host.style.display = 'block';
-  _p2BindOverrideInputs();
+  const dl = document.getElementById('p2-report-dl-state');
+  if (dl) {
+    const pdfName = data.pdf ? String(data.pdf) : '';
+    if (pdfName) {
+      dl.innerHTML = `<a class="btn-download" href="/api/report/download?name=${encodeURIComponent(pdfName)}" target="_blank" rel="noopener noreferrer">📄 수출가격전략 보고서 다운로드</a>`;
+    } else {
+      dl.innerHTML = '<span style="font-size:12px;color:var(--muted);">생성된 P2 PDF가 없습니다.</span>';
+    }
+  }
+
+  sec.style.display = '';
 }
 
 async function _submitP2Analysis({ useLastState = false, overrides = null } = {}) {
-  const btn  = document.getElementById('btn-p2-ai-run');
-  const icon = document.getElementById('p2-ai-run-icon');
   _p2HideError();
   _p2ResetResultView(false);
 
@@ -1462,23 +1637,14 @@ async function _submitP2Analysis({ useLastState = false, overrides = null } = {}
     return;
   }
 
-  _p2LastPayload = {
-    input_mode: _p2InputMode,
-    market_type: _p2Market,
-    report_id: (document.getElementById('p2-report-select') || {}).value || null,
-    report_data: reportFullBlob,
-    manual_product: _p2InputMode === 'manual' ? document.getElementById('p2-manual-product').value.trim() : null,
-    pdf_file: (document.getElementById('p2-pdf-input')?.files || [])[0] || null,
-  };
-
-  await _p2PerformRequest(fd);
+  await _p2PerformRequest(state, overrides);
 }
 
-async function _p2PerformRequest(fd) {
+async function _p2PerformRequest(state, overrides = null) {
   if (_p2Running) return;
   _p2Running = true;
-  const btn  = document.getElementById('p2-btn-run');
-  const icon = document.getElementById('p2-btn-icon');
+  const btn  = document.getElementById('btn-p2-ai-run');
+  const icon = document.getElementById('p2-ai-run-icon');
   if (btn) btn.disabled = true;
   if (icon) icon.textContent = '⏳';
 
@@ -1497,10 +1663,14 @@ async function _p2PerformRequest(fd) {
       return;
     }
 
-    const stub = document.getElementById('p2-result-stub');
-    if (data.ok && stub) {
-      stub.textContent = data.message || '처리되었습니다.';
-      stub.style.display = 'block';
+    const sec = document.getElementById('p2-ai-result-section');
+    const list = document.getElementById('p2-product-list');
+    const dlStub = document.getElementById('p2-report-dl-state');
+    if (data.ok && !data.scenarios && sec && list) {
+      const msg = data.message || '처리되었습니다.';
+      sec.style.display = '';
+      list.innerHTML = `<p class="p2-stub-msg">${_escHtml(msg)}</p>`;
+      if (dlStub) dlStub.innerHTML = '';
       return;
     }
 

@@ -2002,14 +2002,179 @@ button.p3-btn-secondary {
   color: var(--red);
 }
 
+/* ── P2 · 3열 시나리오 (팀원 레이아웃 동기화) ───────────────────────────── */
+.p2-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.p2-stub-msg {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(23, 63, 120, .07);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.55;
+}
+.p2-three-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.p2-col {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: var(--sh2);
+  border-top: 3px solid transparent;
+}
+.p2-col--agg  { border-top-color: var(--orange); }
+.p2-col--avg  { border-top-color: var(--navy); }
+.p2-col--cons { border-top-color: var(--green); }
+
+.p2-col-rank-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.p2-col-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--navy);
+}
+.p2-col-price {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--navy);
+  letter-spacing: -.04em;
+  line-height: 1;
+}
+.p2-col-currency {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-bottom: 6px;
+  margin-top: 2px;
+}
+.p2-col-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.p2-col-expand-row { margin-bottom: 4px; }
+.p2-col-expand-btn {
+  background: none;
+  border: none;
+  font-size: 11.5px;
+  color: var(--navy);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  transition: opacity .15s;
+}
+.p2-col-expand-btn:hover { opacity: .7; }
+
+.p2-col-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(23,63,120,.07);
+}
+.p2-col-input-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.p2-col-input-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+  flex: 1;
+}
+.p2-col-input {
+  width: 86px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--inner);
+  color: var(--navy);
+  border: none;
+  outline: none;
+  text-align: right;
+  font-family: inherit;
+  box-shadow: var(--sh3);
+  transition: box-shadow .15s;
+}
+.p2-col-input:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
+
+.p2-col-steps.p2-steps-details {
+  margin-top: 12px;
+}
+
+.p2-prod-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+.p2-prod-table th {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 6px 10px;
+  background: var(--inner);
+  text-align: left;
+}
+.p2-prod-table th:first-child { border-radius: 8px 0 0 8px; }
+.p2-prod-table th:last-child  { border-radius: 0 8px 8px 0; }
+.p2-prod-table td {
+  padding: 9px 10px;
+  color: var(--text);
+  border-bottom: 1px solid rgba(23,63,120,.05);
+}
+.p2-prod-table tr:last-child td { border-bottom: none; }
+
+.p2-result-meta {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+.p2-result-meta-title {
+  font-weight: 900;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+.p2-dist-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.p2-dist-inline span { font-weight: 700; color: var(--navy); }
+
 /* ── 반응형 추가 ────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .macro-grid    { grid-template-columns: repeat(2, 1fr); }
   .map-news-grid { grid-template-columns: 1fr; }
+  .p2-three-col  { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .macro-grid    { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .macro-value   { font-size: 22px; }
   .process-header { padding: 16px 18px; }
   .process-body  { padding: 0 16px 18px; }
+  .p2-three-col  { grid-template-columns: 1fr; }
 }

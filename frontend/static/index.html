@@ -32,7 +32,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=9"/>
+  <link rel="stylesheet" href="/static/style.css?v=10"/>
 </head>
 <body>
 <div class="app">
@@ -211,77 +211,78 @@
           </div>
         </div>
 
-        <!-- 분석 결과 카드 — app.js §10 renderResult() 가 채우고 표시 -->
-        <div class="result-card" id="result-card">
-          <div class="card-title"><div class="card-title-dot"></div> 수출 적합성 분석 결과</div>
+        <!-- 상세 결과·논문 카드 — 메인에서는 숨김 (DOM은 renderResult가 채움 · 보고서 탭 등에서 활용) -->
+        <div style="display:none;" aria-hidden="true">
+          <div class="result-card" id="result-card">
+            <div class="card-title"><div class="card-title-dot"></div> 수출 적합성 분석 결과</div>
 
-          <div class="rs-block">
-            <div class="rs-block-label">제품 식별</div>
-            <div class="rs-product-row">
-              <div class="verdict-name" id="verdict-name">—</div>
-              <div class="verdict-inn"  id="verdict-inn">—</div>
-            </div>
-          </div>
-
-          <div class="rs-block">
-            <div class="rs-block-label">핵심 판정</div>
-            <div class="rs-verdict-wrap">
-              <div class="traffic-light">
-                <div class="tl-lamp tl-red"    id="tl-red"></div>
-                <div class="tl-lamp tl-yellow" id="tl-yellow"></div>
-                <div class="tl-lamp tl-green"  id="tl-green"></div>
-              </div>
-              <span class="verdict-badge v-none" id="verdict-badge">—</span>
-            </div>
-          </div>
-
-          <div class="rs-block">
-            <div class="rs-block-label">두괄식 판정 근거</div>
-            <div class="basis-grid">
-              <div class="basis-item">
-                <div class="basis-label">시장 / 의료</div>
-                <div class="basis-value" id="basis-market-medical">—</div>
-              </div>
-              <div class="basis-item">
-                <div class="basis-label">규제 (SFDA)</div>
-                <div class="basis-value" id="basis-regulatory">—</div>
-              </div>
-              <div class="basis-item">
-                <div class="basis-label">무역</div>
-                <div class="basis-value" id="basis-trade">—</div>
-              </div>
-              <div class="basis-item">
-                <div class="basis-label">참고 가격 (SAR)</div>
-                <div class="basis-value pbs-price-block" id="basis-pbs-line">—</div>
+            <div class="rs-block">
+              <div class="rs-block-label">제품 식별</div>
+              <div class="rs-product-row">
+                <div class="verdict-name" id="verdict-name">—</div>
+                <div class="verdict-inn"  id="verdict-inn">—</div>
               </div>
             </div>
-          </div>
 
-          <div class="rs-block">
-            <div class="rs-block-label">시장 진출 전략</div>
-            <div class="rs-strategy-grid">
-              <div class="rs-strategy-item">
-                <div class="rs-strategy-sub">진입 채널 권고</div>
-                <span class="entry-pathway" id="entry-pathway"></span>
-              </div>
-              <div class="rs-strategy-item">
-                <div class="rs-strategy-sub">가격 포지셔닝 (SAR)</div>
-                <div class="basis-value pbs-price-block" id="price-positioning-pbs">—</div>
-              </div>
-              <div class="rs-strategy-item">
-                <div class="rs-strategy-sub">리스크 / 조건</div>
-                <div class="basis-value" id="risks-conditions">—</div>
+            <div class="rs-block">
+              <div class="rs-block-label">핵심 판정</div>
+              <div class="rs-verdict-wrap">
+                <div class="traffic-light">
+                  <div class="tl-lamp tl-red"    id="tl-red"></div>
+                  <div class="tl-lamp tl-yellow" id="tl-yellow"></div>
+                  <div class="tl-lamp tl-green"  id="tl-green"></div>
+                </div>
+                <span class="verdict-badge v-none" id="verdict-badge">—</span>
               </div>
             </div>
+
+            <div class="rs-block">
+              <div class="rs-block-label">두괄식 판정 근거</div>
+              <div class="basis-grid">
+                <div class="basis-item">
+                  <div class="basis-label">시장 / 의료</div>
+                  <div class="basis-value" id="basis-market-medical">—</div>
+                </div>
+                <div class="basis-item">
+                  <div class="basis-label">규제 (SFDA)</div>
+                  <div class="basis-value" id="basis-regulatory">—</div>
+                </div>
+                <div class="basis-item">
+                  <div class="basis-label">무역</div>
+                  <div class="basis-value" id="basis-trade">—</div>
+                </div>
+                <div class="basis-item">
+                  <div class="basis-label">참고 가격 (SAR)</div>
+                  <div class="basis-value pbs-price-block" id="basis-pbs-line">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rs-block">
+              <div class="rs-block-label">시장 진출 전략</div>
+              <div class="rs-strategy-grid">
+                <div class="rs-strategy-item">
+                  <div class="rs-strategy-sub">진입 채널 권고</div>
+                  <span class="entry-pathway" id="entry-pathway"></span>
+                </div>
+                <div class="rs-strategy-item">
+                  <div class="rs-strategy-sub">가격 포지셔닝 (SAR)</div>
+                  <div class="basis-value pbs-price-block" id="price-positioning-pbs">—</div>
+                </div>
+                <div class="rs-strategy-item">
+                  <div class="rs-strategy-sub">리스크 / 조건</div>
+                  <div class="basis-value" id="risks-conditions">—</div>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn-reanalyze" id="btn-reanalyze" onclick="runPipeline()">↺ 재분석</button>
           </div>
 
-          <button class="btn-reanalyze" id="btn-reanalyze" onclick="runPipeline()">↺ 재분석</button>
-        </div>
-
-        <!-- 논문 카드 -->
-        <div class="papers-card" id="papers-card">
-          <div class="card-title"><div class="card-title-dot"></div> Perplexity 추천 논문</div>
-          <div id="papers-list"></div>
+          <div class="papers-card" id="papers-card">
+            <div class="card-title"><div class="card-title-dot"></div> Perplexity 추천 논문</div>
+            <div id="papers-list"></div>
+          </div>
         </div>
 
         <!-- PDF 보고서 카드 -->
@@ -318,78 +319,148 @@
         <span class="process-arrow" id="pa-p2">▾</span>
       </div>
       <div class="process-body" id="pb-p2">
-        <div class="g1 p2-stack">
+        <div id="p2-wrap">
 
-          <article class="card p2-card">
-            <div class="selector-label">입력 모드</div>
-            <div class="p2-seg-row" role="group" aria-label="입력 모드">
-              <button type="button" class="p2-seg-btn on" id="p2-mode-ai" onclick="setP2InputMode('ai', this)">AI 파이프라인</button>
-              <button type="button" class="p2-seg-btn" id="p2-mode-manual" onclick="setP2InputMode('manual', this)">직접 입력</button>
-            </div>
-            <p class="p2-mode-hint" id="p2-mode-hint-ai">보고서를 업로드하면 AI가 가격 정보를 자동 추출·분석합니다.</p>
-            <p class="p2-mode-hint" id="p2-mode-hint-manual" style="display:none">품목명을 입력한 뒤 시장 유형을 선택하고 분석을 실행하세요.</p>
-          </article>
-
-          <article class="card p2-card" id="p2-step1-card">
-            <div class="selector-label">STEP 1 · 보고서 선택</div>
-            <div id="p2-step1-ai">
+          <div class="selector-card">
+            <div class="selector-label">분석 보고서 선택</div>
+            <div class="selector-row">
               <select id="p2-ai-report-select" class="p2-report-select">
                 <option value="">저장된 1공정 보고서를 선택하세요</option>
               </select>
-              <div class="p2-or">또는 PDF 직접 업로드</div>
-              <label class="p2-dropzone" id="p2-dropzone" for="p2-pdf-input">
-                <input type="file" id="p2-pdf-input" class="p2-file-input" accept="application/pdf"/>
-                <span class="p2-dropzone-icon" aria-hidden="true">📄</span>
-                <span class="p2-dropzone-text">PDF 파일 선택 / 드래그</span>
-                <span class="p2-dropzone-file" id="p2-pdf-label"></span>
-              </label>
             </div>
-            <div id="p2-step1-manual" style="display:none">
-              <input type="text" id="p2-manual-product" class="p2-manual-input" placeholder="품목명 (예: Gadvoa Inj.)" autocomplete="off"/>
-              <p class="p2-manual-note" id="p2-manual-note" style="display:none"></p>
-            </div>
-          </article>
+            <div class="p2-or">또는 PDF 직접 업로드</div>
+            <label class="p2-dropzone" id="p2-dropzone" for="p2-pdf-input">
+              <input type="file" id="p2-pdf-input" class="p2-file-input" accept="application/pdf"/>
+              <span class="p2-dropzone-icon" aria-hidden="true">📄</span>
+              <span class="p2-dropzone-text">PDF 파일 선택 / 드래그</span>
+              <span class="p2-dropzone-file" id="p2-pdf-label"></span>
+            </label>
 
-          <article class="card p2-card">
-            <div class="selector-label">STEP 2 · 시장 선택 및 분석 실행</div>
-            <div class="p2-step2-row">
-              <div class="p2-step2-left">
-                <div class="p2-seg-row" role="group" aria-label="시장 유형">
-                  <button type="button" class="p2-seg-btn on" id="p2-ai-seg-public"  onclick="setP2AiSeg('public', this)">공공 시장</button>
-                  <button type="button" class="p2-seg-btn"    id="p2-ai-seg-private" onclick="setP2AiSeg('private', this)">민간 시장</button>
-                </div>
-                <p class="p2-market-hint" id="p2-market-hint-public">NUPCO 등 공공 조달·입찰 채널과 SFDA 등록 요건을 기준으로 가격·입찰 신호를 분석합니다.</p>
-                <p class="p2-market-hint" id="p2-market-hint-private" style="display:none">병원·도매·소매 등 민간 유통 채널 기준으로 가격 포지션을 분석합니다.</p>
+            <div class="selector-label" style="margin-top:14px;">시장 선택 및 분석 실행</div>
+            <div class="selector-row" style="flex-wrap:wrap;gap:10px;">
+              <div class="p2-seg-row" style="margin-bottom:0;flex:1;min-width:180px;">
+                <button type="button" class="p2-seg-btn on" id="p2-ai-seg-public" onclick="setP2AiSeg('public')">공공 시장</button>
+                <button type="button" class="p2-seg-btn" id="p2-ai-seg-private" onclick="setP2AiSeg('private')">민간 시장</button>
               </div>
-              <div class="p2-step2-actions">
-                <button type="button" class="btn-analyze p2-run-btn" id="btn-p2-ai-run" onclick="runP2AiPipeline()">
-                  <span id="p2-ai-run-icon">▶</span> AI 가격 분석 실행
-                </button>
-              </div>
+              <button type="button" class="btn-analyze p2-run-btn" id="btn-p2-ai-run" onclick="runP2AiPipeline()">
+                <span id="p2-ai-run-icon">▶</span> AI 가격 분석 실행
+              </button>
             </div>
-            <p class="p2-inline-error" id="p2-ai-error-msg" style="display:none"></p>
-            <!-- 진행 단계 -->
+            <div id="p2-ai-seg-desc" class="p2-note">공공 시장: NUPCO 등 조달·입찰·SFDA 기준 (스텁 응답).</div>
+
             <div class="progress-row" id="p2-progress-row">
-              <div class="prog-step" id="p2prog-extract">
-                <div class="prog-dot">1</div>
-                <div class="prog-label">PDF 추출</div>
-              </div>
-              <div class="prog-step" id="p2prog-ai_extract">
-                <div class="prog-dot">2</div>
-                <div class="prog-label">가격 추출</div>
-              </div>
-              <div class="prog-step" id="p2prog-ai_analysis">
-                <div class="prog-dot">3</div>
-                <div class="prog-label">AI 분석</div>
-              </div>
-              <div class="prog-step" id="p2prog-report">
-                <div class="prog-dot">4</div>
-                <div class="prog-label">보고서 생성</div>
-              </div>
+              <div class="prog-step" id="p2prog-extract"><div class="prog-dot">1</div><div class="prog-label">PDF 추출</div></div>
+              <div class="prog-step" id="p2prog-ai_extract"><div class="prog-dot">2</div><div class="prog-label">가격 추출</div></div>
+              <div class="prog-step" id="p2prog-ai_analysis"><div class="prog-dot">3</div><div class="prog-label">AI 분석</div></div>
+              <div class="prog-step" id="p2prog-report"><div class="prog-dot">4</div><div class="prog-label">보고서 생성</div></div>
             </div>
-            <div class="p2-result-stub" id="p2-result-stub" style="display:none"></div>
-            <div class="p2-result-area" id="p2-result-area" style="display:none"></div>
-          </article>
+            <div id="p2-ai-error-msg" class="p2-inline-error" style="display:none"></div>
+          </div>
+
+          <div id="p2-ai-result-section" style="display:none;">
+            <div class="p2-three-col">
+
+              <div class="p2-col p2-col--agg">
+                <div class="p2-col-rank-row">
+                  <span class="p2-col-label">공격적 (1위)</span>
+                  <span class="p2-rank-badge">RANK 1</span>
+                </div>
+                <div class="p2-col-price" id="p2c-price-agg">—</div>
+                <div class="p2-col-currency">SAR FOB</div>
+                <div class="p2-col-sub" id="p2c-sub-agg">— USD · — KRW</div>
+                <div class="p2-col-expand-row">
+                  <button type="button" class="p2-col-expand-btn" onclick="toggleP2ColDetail('agg')">▸ 역산 · 옵션 편집</button>
+                </div>
+                <div class="p2-col-detail" id="p2cd-agg" style="display:none;">
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">기준 소매가 (SAR)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-base-agg" value="0" step="0.01" min="0" oninput="recalcP2Col('agg')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">에이전트 수수료(%)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-fee-agg" value="3.0" step="0.5" min="0" max="50" oninput="recalcP2Col('agg')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">운임 배수</label>
+                    <input class="p2-col-input" type="number" id="p2ci-freight-agg" value="0.85" step="0.05" min="0.1" max="5" oninput="recalcP2Col('agg')">
+                  </div>
+                  <details class="p2-steps-details p2-col-steps"><summary>단계별 역산 보기</summary>
+                    <div id="p2-steps-body-agg"></div>
+                  </details>
+                </div>
+              </div>
+
+              <div class="p2-col p2-col--avg">
+                <div class="p2-col-rank-row">
+                  <span class="p2-col-label">평균 (2위)</span>
+                  <span class="p2-rank-badge">RANK 2</span>
+                </div>
+                <div class="p2-col-price" id="p2c-price-avg">—</div>
+                <div class="p2-col-currency">SAR FOB</div>
+                <div class="p2-col-sub" id="p2c-sub-avg">— USD · — KRW</div>
+                <div class="p2-col-expand-row">
+                  <button type="button" class="p2-col-expand-btn" onclick="toggleP2ColDetail('avg')">▸ 역산 · 옵션 편집</button>
+                </div>
+                <div class="p2-col-detail" id="p2cd-avg" style="display:none;">
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">기준 소매가 (SAR)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-base-avg" value="0" step="0.01" min="0" oninput="recalcP2Col('avg')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">에이전트 수수료(%)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-fee-avg" value="5.0" step="0.5" min="0" max="50" oninput="recalcP2Col('avg')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">운임 배수</label>
+                    <input class="p2-col-input" type="number" id="p2ci-freight-avg" value="1.00" step="0.05" min="0.1" max="5" oninput="recalcP2Col('avg')">
+                  </div>
+                  <details class="p2-steps-details p2-col-steps"><summary>단계별 역산 보기</summary>
+                    <div id="p2-steps-body-avg"></div>
+                  </details>
+                </div>
+              </div>
+
+              <div class="p2-col p2-col--cons">
+                <div class="p2-col-rank-row">
+                  <span class="p2-col-label">보수적 (3위)</span>
+                  <span class="p2-rank-badge">RANK 3</span>
+                </div>
+                <div class="p2-col-price" id="p2c-price-cons">—</div>
+                <div class="p2-col-currency">SAR FOB</div>
+                <div class="p2-col-sub" id="p2c-sub-cons">— USD · — KRW</div>
+                <div class="p2-col-expand-row">
+                  <button type="button" class="p2-col-expand-btn" onclick="toggleP2ColDetail('cons')">▸ 역산 · 옵션 편집</button>
+                </div>
+                <div class="p2-col-detail" id="p2cd-cons" style="display:none;">
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">기준 소매가 (SAR)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-base-cons" value="0" step="0.01" min="0" oninput="recalcP2Col('cons')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">에이전트 수수료(%)</label>
+                    <input class="p2-col-input" type="number" id="p2ci-fee-cons" value="10.0" step="0.5" min="0" max="50" oninput="recalcP2Col('cons')">
+                  </div>
+                  <div class="p2-col-input-row">
+                    <label class="p2-col-input-label">운임 배수</label>
+                    <input class="p2-col-input" type="number" id="p2ci-freight-cons" value="1.20" step="0.05" min="0.1" max="5" oninput="recalcP2Col('cons')">
+                  </div>
+                  <details class="p2-steps-details p2-col-steps"><summary>단계별 역산 보기</summary>
+                    <div id="p2-steps-body-cons"></div>
+                  </details>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="selector-card" style="margin-top:12px;">
+              <div id="p2-product-list"></div>
+              <div id="p2-report-dl-state" style="margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <div style="display:none;" aria-hidden="true">
+            <input type="text" id="p2-manual-product" tabindex="-1" autocomplete="off" value=""/>
+          </div>
 
         </div>
       </div><!-- /pb-p2 -->
@@ -482,7 +553,7 @@
 </div><!-- /.app -->
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=7"></script>
+<script src="/static/app.js?v=10"></script>
 <script>
 (function () {
   var map = L.map('sa-map', {
@@ -500,4 +571,3 @@
 </script>
 </body>
 </html>
-MAIN_PROBE_XYZ

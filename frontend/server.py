@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 # ── 프로젝트 루트 계산 ──
 ROOT = Path(__file__).resolve().parent.parent
@@ -633,8 +634,8 @@ async def start_pipeline(product_key: str):
 
     _pipeline_tasks[product_key] = {
         "status": "running",
-        "step": "crawl",
-        "step_label": "크롤링",
+        "step": "db_load",
+        "step_label": "DB 조회·크롤링",
         "result": None,
         "refs": None,
         "pdf": None,
@@ -683,12 +684,12 @@ async def get_pipeline_result(product_key: str):
 async def _run_pipeline_for_product(product_key: str, drug: TargetDrug) -> None:
     task = _pipeline_tasks[product_key]
     try:
-        # ── Step 1: Crawl ──
-        task["step"] = "crawl"
-        task["step_label"] = "크롤링"
+        # ── Step 1: 크롤 + DB 재조회 (프론트 progress: db_load) ──
+        task["step"] = "db_load"
+        task["step_label"] = "DB 조회·크롤링"
         _state["running"] = True
         _reset_site_states()
-        await _emit({"phase": "pipeline", "step": "crawl",
+        await _emit({"phase": "pipeline", "step": "db_load",
                       "message": f"[{drug.trade_name}] 크롤링 시작"})
 
         search_result: Optional[dict] = None
@@ -712,7 +713,7 @@ async def _run_pipeline_for_product(product_key: str, drug: TargetDrug) -> None:
                         })
                         break
             total = sr_dict.get("total_matches", 0)
-            await _emit({"phase": "pipeline", "step": "crawl",
+            await _emit({"phase": "pipeline", "step": "db_load",
                           "message": f"크롤링 완료: {total}건"})
         except Exception as e:
             await _emit({"phase": "log", "message": f"크롤링 실패: {e}"})
@@ -728,7 +729,7 @@ async def _run_pipeline_for_product(product_key: str, drug: TargetDrug) -> None:
                     persist_aggregated_search_to_supabase, sb, crawl_agg
                 )
                 if n_ins:
-                    await _emit({"phase": "pipeline", "step": "crawl",
+                    await _emit({"phase": "pipeline", "step": "db_load",
                                   "message": f"Supabase 적재: {n_ins}건"})
             except Exception as e:
                 logger.warning("크롤 결과 DB 적재 실패: %s", e)
@@ -742,10 +743,10 @@ async def _run_pipeline_for_product(product_key: str, drug: TargetDrug) -> None:
                 await _emit({"phase": "log", "message": f"DB 재조회 실패: {db_err}"})
             elif rows:
                 search_result = {"source": "database", "rows": rows, "count": len(rows)}
-                await _emit({"phase": "pipeline", "step": "crawl",
+                await _emit({"phase": "pipeline", "step": "db_load",
                               "message": f"DB 재조회: 총 {len(rows)}건"})
             else:
-                await _emit({"phase": "pipeline", "step": "crawl",
+                await _emit({"phase": "pipeline", "step": "db_load",
                               "message": "DB 재조회: 동일 성분 레코드 없음 — 크롤 결과로 분석"})
 
         _state["running"] = False
@@ -1725,9 +1726,96 @@ async def api_news():
     return {"ok": True, "items": items}
 
 
+def _p3_base_domain_for_dedupe(url: str) -> str:
+    """Perplexity 클라이언트와 동일하게 netloc 기준 2레벨 도메인으로 중복 판별."""
+    try:
+        netloc = urlparse(url.strip()).netloc.lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        parts = netloc.split(".")
+        if len(parts) >= 2:
+            return ".".join(parts[-2:])
+        return netloc or ""
+    except Exception:
+        return ""
+
+
+def _load_ai_discovered_sources_for_p3(sb) -> list[dict]:
+    """Supabase ai_discovered_sources — 국가 필터 없음(SA 외 JP 등 팀 등록 URL 포함).
+
+    기존 /api/news 는 country=SA 만 조회하지만, P3는 사용자가 넣은 해외 전시·디렉터리도 후보로 올린다.
+    """
+    rows: list[dict] = []
+    try:
+        resp = (
+            sb.table("ai_discovered_sources")
+            .select(
+                "url,domain,category,relevance_score,"
+                "has_price_data,has_product_listing,country,created_at"
+            )
+            .order("created_at", desc=True)
+            .limit(120)
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception as exc:
+        logger.warning("P3 ai_discovered_sources 조회 실패: %s", exc)
+        return []
+
+    out: list[dict] = []
+    for row in rows:
+        url = str(row.get("url") or "").strip()
+        if not url.startswith("http"):
+            continue
+        dom = (row.get("domain") or "").strip().lower() or urlparse(url).netloc.lower()
+        title = dom or url
+        rs = row.get("relevance_score")
+        score = 0.96
+        if rs is not None:
+            try:
+                score = max(0.96, min(1.0, float(rs)))
+            except (TypeError, ValueError):
+                pass
+        out.append(
+            {
+                "url": url,
+                "domain": dom,
+                "title": title[:300],
+                "description": "팀 DB(ai_discovered_sources) 등록 소스",
+                "relevance_score": score,
+                "category": str(row.get("category") or "registered"),
+                "has_price_data": bool(row.get("has_price_data")),
+                "has_product_listing": bool(row.get("has_product_listing")),
+                "language": "",
+            }
+        )
+    return out
+
+
+def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict]) -> list[dict]:
+    """DB 등록 소스를 먼저 두고, 같은 도메인은 Perplexity 쪽에서 제외."""
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for item in db_items:
+        u = str(item.get("url") or "")
+        b = _p3_base_domain_for_dedupe(u)
+        if not b or b in seen:
+            continue
+        seen.add(b)
+        merged.append(item)
+    for item in perplexity_items:
+        u = str(item.get("url") or "")
+        b = _p3_base_domain_for_dedupe(u)
+        if not b or b in seen:
+            continue
+        seen.add(b)
+        merged.append(item)
+    return merged[:50]
+
+
 @app.post("/api/p3/prospects")
 async def api_p3_prospects(req: P3ProspectsRequest):
-    """3공정: 바이어/파트너 후보 소스(유통사/병원/조달처 등) URL을 Perplexity로 수집."""
+    """3공정: 바이어/파트너 후보 — Supabase 등록 소스 + Perplexity 검색 병합."""
     pplx = _get_pplx()
     if not pplx:
         raise HTTPException(503, "PERPLEXITY_API_KEY 미설정")
@@ -1760,6 +1848,11 @@ async def api_p3_prospects(req: P3ProspectsRequest):
         "strength": strength,
     }
 
+    db_sources: list[dict] = []
+    sb = _get_supabase()
+    if sb:
+        db_sources = _load_ai_discovered_sources_for_p3(sb)
+
     try:
         items = await asyncio.to_thread(
             pplx.search_pharma_sources,
@@ -1771,7 +1864,8 @@ async def api_p3_prospects(req: P3ProspectsRequest):
             key=lambda x: float(x.get("relevance_score") or 0.0),
             reverse=True,
         )
-        return {"ok": True, "count": len(items_sorted), "items": items_sorted}
+        merged = _merge_p3_prospect_lists(db_sources, items_sorted)
+        return {"ok": True, "count": len(merged), "items": merged}
     except Exception as exc:
         logger.warning("P3 prospects Perplexity 실패: %s", exc)
         return JSONResponse(
@@ -1883,7 +1977,6 @@ async def api_p2_price_analyze(
             )
 
     # PDF 크기/포맷 검증 + 바이트 수집
-    pdf_bytes: Optional[bytes] = None
     if has_pdf:
         ctype = (pdf.content_type or "").lower()
         if ctype and "pdf" not in ctype and ctype != "application/octet-stream":
@@ -1892,8 +1985,7 @@ async def api_p2_price_analyze(
                 content={"ok": False, "detail": "PDF 파일만 업로드할 수 있습니다."},
             )
         max_bytes = 8 * 1024 * 1024
-        total = 0
-        chunks: list[bytes] = []
+        buf = bytearray()
         while True:
             chunk = await pdf.read(65536)
             if not chunk:
@@ -1904,32 +1996,12 @@ async def api_p2_price_analyze(
                     status_code=413,
                     content={"ok": False, "detail": "PDF는 8MB 이하만 허용됩니다."},
                 )
-            chunks.append(chunk)
-        pdf_bytes = b"".join(chunks)
+        pdf_bytes = bytes(buf)
 
     if mt == "private":
-        try:
-            exchange_rates = _fetch_exchange_rates()
-            llm = _get_llm()
-            result = run_private_pipeline(
-                report_data=report_payload,
-                pdf_bytes=pdf_bytes,
-                overrides=overrides_payload,
-                exchange_rates=exchange_rates,
-                llm=llm,
-            )
-            return result
-        except Exception as exc:
-            logger.exception("2공정 민간 시장 FOB 파이프라인 실패")
-            return JSONResponse(
-                status_code=500,
-                content={"ok": False, "detail": f"민간 시장 FOB 역산 실패: {exc}"},
-            )
-
-    # private 파이프라인 분기
-    if mt == "private":
+        # 함수 내부에서 run_private_pipeline 을 다시 import 하면 해당 이름이 로컬로만 잡혀
+        # 위쪽 호출에서 UnboundLocalError 가 난다. 모듈 상단 import 만 사용한다.
         if not report_payload and not pdf_bytes:
-            # rid만 전달되고 report_data가 없으면 서버가 localStorage를 모르니 거절한다.
             return JSONResponse(
                 status_code=400,
                 content={
@@ -1938,34 +2010,25 @@ async def api_p2_price_analyze(
                 },
             )
         try:
-            from frontend.fob_private import run_private_pipeline
-        except Exception as exc:
-            logger.exception("fob_private 모듈 로드 실패: %s", exc)
-            return JSONResponse(
-                status_code=500,
-                content={"ok": False, "detail": "FOB 파이프라인 로드 실패."},
-            )
-
-        fx = await asyncio.to_thread(_fetch_exchange_rates)
-        llm = _get_llm()
-        try:
+            fx = await asyncio.to_thread(_fetch_exchange_rates)
+            llm = _get_llm()
             result = await asyncio.to_thread(
                 run_private_pipeline,
                 report_data=report_payload,
                 pdf_bytes=pdf_bytes,
-                overrides=overrides,
+                overrides=overrides_payload,
                 exchange_rates=fx,
                 llm=llm,
             )
         except Exception as exc:
-            logger.exception("private 파이프라인 실패: %s", exc)
+            logger.exception("2공정 민간 시장 FOB 파이프라인 실패")
             return JSONResponse(
                 status_code=500,
-                content={"ok": False, "detail": f"분석 중 오류: {exc!s}"[:300]},
+                content={"ok": False, "detail": f"민간 시장 FOB 역산 실패: {exc}"},
             )
         if not result.get("ok"):
             return JSONResponse(status_code=400, content=result)
-        return {"market_type": "private", **result}
+        return result
 
     # public: 기존 스텁 유지
     return {

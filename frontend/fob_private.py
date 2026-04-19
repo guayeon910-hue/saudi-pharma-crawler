@@ -579,10 +579,15 @@ def _scenario_overrides(overrides: dict | None) -> dict[str, dict[str, float]]:
         scenario_values: dict[str, float] = {}
         agent = _safe_float(current.get("agent_commission_pct"))
         freight = _safe_float(current.get("freight_multiplier"))
+        retail_override = _safe_float(current.get("retail_base"))
+        if retail_override is None:
+            retail_override = _safe_float(current.get("retail_sar"))
         if agent is not None:
             scenario_values["agent_commission_pct"] = _clamp(agent, 0.0, 0.20)
         if freight is not None:
             scenario_values["freight_multiplier"] = _clamp(freight, 0.50, 2.00)
+        if retail_override is not None:
+            scenario_values["retail_base"] = _clamp(retail_override, 0.01, 10_000_000.0)
         sanitized[name] = scenario_values
     return sanitized
 
