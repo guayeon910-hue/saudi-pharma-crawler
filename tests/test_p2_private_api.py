@@ -128,13 +128,31 @@ def test_private_manual_mode_is_blocked(client):
     assert "직접 입력" in response.json()["detail"]
 
 
-def test_public_market_stub_is_preserved(client):
+def test_public_manual_without_price_data_returns_400(client):
     response = client.post(
         "/api/p2/price-analyze",
         data={"input_mode": "manual", "market_type": "public", "manual_product": "ApiSample"},
     )
 
+    assert response.status_code == 400
+    detail = response.json().get("detail", "")
+    assert "가격" in detail or "샘플" in detail
+
+
+def test_public_ai_with_report_data_returns_scenarios(client):
+    response = client.post(
+        "/api/p2/price-analyze",
+        data={
+            "input_mode": "ai",
+            "market_type": "public",
+            "report_id": "1",
+            "report_data": json.dumps(_sample_report_data()),
+        },
+    )
+
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
-    assert payload["status"] == "stub"
+    assert payload["market_type"] == "public"
+    assert "scenarios" in payload
+    assert "aggressive" in payload["scenarios"]

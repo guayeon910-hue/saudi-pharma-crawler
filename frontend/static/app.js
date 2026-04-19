@@ -1229,7 +1229,7 @@ function setP2Market(market, el) {
   const segDesc = document.getElementById('p2-ai-seg-desc');
   if (segDesc) {
     segDesc.textContent = _p2Market === 'public'
-      ? '공공 시장: NUPCO 등 조달·입찰·SFDA 기준 (스텁 응답).'
+      ? '공공 시장: NUPCO/SFDA 참고 가격 분포 기준 FOB 벤치마크 역산.'
       : '민간 시장: 병원·도매·소매 유통 기준 FOB 역산.';
   }
 

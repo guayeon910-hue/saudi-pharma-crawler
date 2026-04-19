@@ -13,6 +13,7 @@ from frontend.fob_private import (
     compute_regulatory_amortization,
     reverse_retail_to_cif,
     run_private_pipeline,
+    run_public_pipeline,
     select_tier_by_retail,
 )
 
@@ -94,6 +95,20 @@ def test_run_private_pipeline_returns_three_scenarios_and_fallback_warning():
     assert result["scenarios"]["aggressive"]["retail_sar"] >= result["scenarios"]["average"]["retail_sar"]
     assert result["scenarios"]["average"]["retail_sar"] >= result["scenarios"]["conservative"]["retail_sar"]
     assert result["scenarios"]["aggressive"]["fob_sar"] is not None
+
+
+def test_run_public_pipeline_market_type_and_public_scenario_defaults():
+    result = run_public_pipeline(
+        report_data=_sample_report_data(),
+        pdf_bytes=None,
+        overrides=None,
+        exchange_rates=STATIC_RATES,
+        llm=None,
+    )
+    assert result["ok"] is True
+    assert result["market_type"] == "public"
+    assert any("NUPCO" in n or "공공" in n for n in result["notes"])
+    assert result["scenarios"]["aggressive"]["agent_commission_pct"] == pytest.approx(0.025)
 
 
 def test_run_private_pipeline_handles_negative_fob():

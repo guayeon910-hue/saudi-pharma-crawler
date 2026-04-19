@@ -32,7 +32,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=10"/>
+  <link rel="stylesheet" href="/static/style.css?v=11"/>
 </head>
 <body>
 <div class="app">
@@ -346,7 +346,7 @@
                 <span id="p2-ai-run-icon">▶</span> AI 가격 분석 실행
               </button>
             </div>
-            <div id="p2-ai-seg-desc" class="p2-note">공공 시장: NUPCO 등 조달·입찰·SFDA 기준 (스텁 응답).</div>
+            <div id="p2-ai-seg-desc" class="p2-note">공공 시장: NUPCO/SFDA 참고 가격 분포 기준 FOB 벤치마크 역산.</div>
 
             <div class="progress-row" id="p2-progress-row">
               <div class="prog-step" id="p2prog-extract"><div class="prog-dot">1</div><div class="prog-label">PDF 추출</div></div>
@@ -553,7 +553,7 @@
 </div><!-- /.app -->
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=10"></script>
+<script src="/static/app.js?v=11"></script>
 <script>
 (function () {
   var map = L.map('sa-map', {

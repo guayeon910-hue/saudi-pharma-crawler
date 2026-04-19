@@ -79,6 +79,31 @@ SCENARIO_DEFAULTS = {
     },
 }
 
+# 공공 조달(NUPCO/SFDA 벤치마크): 동일 분포 가정하되 에이전트·운임 가정을 입찰 통행에 맞춰 조정
+PUBLIC_SCENARIO_DEFAULTS = {
+    "aggressive": {
+        "label": "공격적",
+        "entry_rank": 1,
+        "price_basis": "p75",
+        "agent_commission_pct": 0.025,
+        "freight_multiplier": 0.82,
+    },
+    "average": {
+        "label": "평균",
+        "entry_rank": 2,
+        "price_basis": "median",
+        "agent_commission_pct": 0.040,
+        "freight_multiplier": 1.00,
+    },
+    "conservative": {
+        "label": "보수적",
+        "entry_rank": 3,
+        "price_basis": "p25",
+        "agent_commission_pct": 0.080,
+        "freight_multiplier": 1.12,
+    },
+}
+
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
@@ -283,7 +308,10 @@ def _collect_price_pool(report_data: dict) -> list[dict]:
 def _build_competitor_stats(price_pool: list[dict]) -> dict:
     values = sorted(item["price"] for item in price_pool)
     if not values:
-        raise ValueError("민간 시장 FOB 역산에 사용할 가격 샘플을 찾지 못했습니다.")
+        raise ValueError(
+            "가격 분포 역산에 사용할 SAR 가격 샘플을 찾지 못했습니다. "
+            "1공정 보고서에 동일 성분 가격·추정가가 포함되어 있는지 확인하세요."
+        )
 
     count = len(values)
     if count >= 3:
@@ -553,12 +581,12 @@ def _normalize_report_source(report_data: dict | None, pdf_bytes: bytes | None, 
         }, notes
 
     if not pdf_bytes:
-        raise ValueError("민간 시장 FOB 역산에는 report_data 또는 PDF 업로드가 필요합니다.")
+        raise ValueError("2공정 FOB 역산에는 저장된 보고서(report_data) 또는 PDF 업로드가 필요합니다.")
 
     text = _extract_text_from_pdf_bytes(pdf_bytes)
     if not text:
         raise ValueError("업로드한 PDF에서 텍스트를 추출하지 못했습니다.")
-    notes.append("PDF 업로드에서 텍스트를 추출해 민간 시장 FOB를 역산했습니다.")
+    notes.append("PDF 업로드에서 텍스트를 추출해 가격 분포를 구성했습니다.")
     parsed_report = _extract_fields_from_text(text)
     if _pdf_report_needs_enrichment(parsed_report):
         parsed_report, enrichment_note = _enrich_pdf_report_from_text(text, parsed_report, llm)
@@ -567,11 +595,14 @@ def _normalize_report_source(report_data: dict | None, pdf_bytes: bytes | None, 
     return parsed_report, notes
 
 
-def _scenario_overrides(overrides: dict | None) -> dict[str, dict[str, float]]:
+def _scenario_overrides(
+    overrides: dict | None,
+    scenario_defaults: dict[str, dict],
+) -> dict[str, dict[str, float]]:
     raw = overrides or {}
     scenarios = raw.get("scenarios") if isinstance(raw.get("scenarios"), dict) else raw
     sanitized: dict[str, dict[str, float]] = {}
-    for name in SCENARIO_DEFAULTS:
+    for name in scenario_defaults:
         current = scenarios.get(name) if isinstance(scenarios, dict) else None
         if not isinstance(current, dict):
             sanitized[name] = {}
@@ -592,10 +623,14 @@ def _scenario_overrides(overrides: dict | None) -> dict[str, dict[str, float]]:
     return sanitized
 
 
-def _build_scenario_configs(stats: dict, overrides: dict | None) -> dict[str, dict]:
-    sanitized_overrides = _scenario_overrides(overrides)
+def _build_scenario_configs(
+    stats: dict,
+    overrides: dict | None,
+    scenario_defaults: dict[str, dict],
+) -> dict[str, dict]:
+    sanitized_overrides = _scenario_overrides(overrides, scenario_defaults)
     scenarios: dict[str, dict] = {}
-    for name, defaults in SCENARIO_DEFAULTS.items():
+    for name, defaults in scenario_defaults.items():
         basis_key = defaults["price_basis"]
         retail_base = _safe_float(stats.get(basis_key)) or _safe_float(stats.get("avg")) or _safe_float(stats.get("median"))
         scenario = {
@@ -611,21 +646,28 @@ def _make_step(label: str, value_sar: Optional[float]) -> dict:
     return {"label": label, "value_sar": _round_money(value_sar)}
 
 
-def run_private_pipeline(
+def _run_market_fob_pipeline(
     *,
     report_data: dict | None,
     pdf_bytes: bytes | None,
     overrides: dict | None,
     exchange_rates: dict | None,
     llm: Any | None,
+    scenario_defaults: dict[str, dict],
+    market_type: str,
 ) -> dict:
     product, source_notes = _normalize_report_source(report_data, pdf_bytes, llm)
     price_pool = _collect_price_pool(product)
     competitor_stats = _build_competitor_stats(price_pool)
     classification = _classify_private_context(product, price_pool, llm)
-    scenarios = _build_scenario_configs(competitor_stats, overrides)
+    scenarios = _build_scenario_configs(competitor_stats, overrides, scenario_defaults)
 
     notes = list(source_notes)
+    if market_type == "public":
+        notes.append(
+            "공공 시장 역산은 NUPCO/SFDA 등 참고 가격 분포와 조달 입찰 통행을 모델링한 벤치마크입니다. "
+            "실제 입찰가·계약 조건과 다를 수 있습니다."
+        )
     notes.append("HS 3004 적격 의약품은 VAT 0%·관세 0%를 기본 가정으로 사용합니다.")
     hs_code = str(product.get("hs_code") or "").strip()
     if not hs_code or "3004" not in hs_code:
@@ -650,6 +692,10 @@ def run_private_pipeline(
         annual_units=DEFAULT_REGULATORY_ASSUMPTIONS["annual_units"],
     )
 
+    ref_price_label = (
+        "공공 조달 참고 가격대" if market_type == "public" else "경쟁사 소매가"
+    )
+
     response_scenarios: dict[str, dict] = {}
     for name, config in scenarios.items():
         retail_sar = float(config["retail_base"])
@@ -672,7 +718,7 @@ def run_private_pipeline(
         port_fee_sar = compute_port_fee(cif_final)
 
         steps = [
-            _make_step(f"경쟁사 소매가 기준 ({config['price_basis']})", retail_sar),
+            _make_step(f"{ref_price_label} 기준 ({config['price_basis']})", retail_sar),
             _make_step(f"약국 마진 제거 (/{1.0 + pharmacy_mark:.2f})", warehouse_price),
             _make_step(f"도매 마진 제거 (/{1.0 + wholesale_mark:.2f})", cif_original),
             _make_step(f"{classification['product_kind']} 상한 적용 (×{cap_factor:.2f})", cif_after_cap),
@@ -730,9 +776,11 @@ def run_private_pipeline(
 
         response_scenarios[name] = scenario_payload
 
+    mt = "public" if market_type == "public" else "private"
+
     return {
         "ok": True,
-        "market_type": "private",
+        "market_type": mt,
         "product": {
             "trade_name": product["trade_name"],
             "inn": product["inn"],
@@ -761,3 +809,41 @@ def run_private_pipeline(
         "regulatory_cost": regulatory_cost,
         "notes": notes,
     }
+
+
+def run_private_pipeline(
+    *,
+    report_data: dict | None,
+    pdf_bytes: bytes | None,
+    overrides: dict | None,
+    exchange_rates: dict | None,
+    llm: Any | None,
+) -> dict:
+    return _run_market_fob_pipeline(
+        report_data=report_data,
+        pdf_bytes=pdf_bytes,
+        overrides=overrides,
+        exchange_rates=exchange_rates,
+        llm=llm,
+        scenario_defaults=SCENARIO_DEFAULTS,
+        market_type="private",
+    )
+
+
+def run_public_pipeline(
+    *,
+    report_data: dict | None,
+    pdf_bytes: bytes | None,
+    overrides: dict | None,
+    exchange_rates: dict | None,
+    llm: Any | None,
+) -> dict:
+    return _run_market_fob_pipeline(
+        report_data=report_data,
+        pdf_bytes=pdf_bytes,
+        overrides=overrides,
+        exchange_rates=exchange_rates,
+        llm=llm,
+        scenario_defaults=PUBLIC_SCENARIO_DEFAULTS,
+        market_type="public",
+    )

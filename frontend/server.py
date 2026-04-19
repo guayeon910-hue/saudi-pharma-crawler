@@ -48,7 +48,7 @@ sys.path.insert(0, str(ROOT))
 from drug_registry import DrugRegistry, TargetDrug
 from targeted_search import search_one_drug, AggregatedResult
 from frontend.dashboard_sites import SITES, get_initial_states
-from frontend.fob_private import run_private_pipeline
+from frontend.fob_private import run_private_pipeline, run_public_pipeline
 
 logger = logging.getLogger("frontend.server")
 
@@ -1884,7 +1884,7 @@ async def api_p2_price_analyze(
     manual_product: Optional[str] = Form(default=None),
     pdf: Optional[UploadFile] = File(default=None),
 ):
-    """2공정 가격 분석 엔드포인트. 민간 시장(private)만 FOB 역산 로직을 수행한다."""
+    """2공정 가격 분석 엔드포인트. 민간·공공 시장 FOB 역산 (`frontend/fob_private.py`)."""
     im = (input_mode or "").strip().lower()
     mt = (market_type or "").strip().lower()
     if im not in ("ai", "manual"):
@@ -1947,10 +1947,13 @@ async def api_p2_price_analyze(
             )
             return JSONResponse(status_code=400, content={"ok": False, "detail": detail})
     elif im == "ai":
-        if not rid and not has_pdf:
+        if not report_payload and not rid and not has_pdf:
             return JSONResponse(
                 status_code=400,
-                content={"ok": False, "detail": "report_data JSON 파싱 실패."},
+                content={
+                    "ok": False,
+                    "detail": "저장된 보고서를 선택해 주세요. JSON(report_data) 또는 PDF 업로드가 필요합니다.",
+                },
             )
 
     # v1 제약: manual + private 금지
@@ -1975,6 +1978,14 @@ async def api_p2_price_analyze(
                 status_code=400,
                 content={"ok": False, "detail": "품목명(manual_product)을 입력하세요."},
             )
+
+    if mt == "public" and im == "manual" and man and not report_payload:
+        report_payload = {
+            "trade_name": man,
+            "inn": "",
+            "dosage_form": "",
+            "strength": "",
+        }
 
     # PDF 크기/포맷 검증 + 바이트 수집
     if has_pdf:
@@ -2020,6 +2031,8 @@ async def api_p2_price_analyze(
                 exchange_rates=fx,
                 llm=llm,
             )
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={"ok": False, "detail": str(exc)})
         except Exception as exc:
             logger.exception("2공정 민간 시장 FOB 파이프라인 실패")
             return JSONResponse(
@@ -2030,20 +2043,37 @@ async def api_p2_price_analyze(
             return JSONResponse(status_code=400, content=result)
         return result
 
-    # public: 기존 스텁 유지
-    return {
-        "ok": True,
-        "market_type": "public",
-        "status": "stub",
-        "message": "공공 시장(NUPCO/SFDA) 분석 파이프라인은 곧 연결됩니다. 현재는 스텁 응답입니다.",
-        "received": {
-            "input_mode": im,
-            "has_report_id": bool(rid),
-            "has_report_data": report_payload is not None,
-            "has_pdf": has_pdf,
-            "manual_len": len(man) if im == "manual" else 0,
-        },
-    }
+    # public — NUPCO/SFDA 벤치마크 FOB (동일 역산 코어, 공공 시나리오 기본값)
+    if not report_payload and not pdf_bytes:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "detail": "공공 시장 분석에는 저장된 1공정 보고서(report_data) 또는 PDF 업로드가 필요합니다.",
+            },
+        )
+    try:
+        fx = await asyncio.to_thread(_fetch_exchange_rates)
+        llm = _get_llm()
+        result = await asyncio.to_thread(
+            run_public_pipeline,
+            report_data=report_payload,
+            pdf_bytes=pdf_bytes,
+            overrides=overrides_payload,
+            exchange_rates=fx,
+            llm=llm,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "detail": str(exc)})
+    except Exception as exc:
+        logger.exception("2공정 공공 시장 FOB 파이프라인 실패")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "detail": f"공공 시장 FOB 역산 실패: {exc}"},
+        )
+    if not result.get("ok"):
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -57,8 +57,8 @@ python -m uvicorn frontend.server:app --host 0.0.0.0 --port 8000
 
 ### 2공정 · 수출전략
 
-**공공 시장**: NUPCO/Etimad 텐더 기준 FOB 분석  
-**민간 시장**: Nahdi·Whites 약국 retail 가격 → FOB 역산 파이프라인 (`frontend/fob_private.py`)
+**공공 시장**: 1공정 보고서의 참고 SAR 가격 분포 → FOB 벤치마크 역산 (`PUBLIC_SCENARIO_DEFAULTS`, 조달 입찰 통행 가정)  
+**민간 시장**: 동일 역산 코어·다른 시나리오 기본값 (`frontend/fob_private.py`)
 
 역산 로직:
 ```
