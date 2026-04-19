@@ -1788,7 +1788,6 @@ async def api_p2_price_analyze(
     report_data: Optional[str] = Form(default=None),
     overrides: Optional[str] = Form(default=None),
     manual_product: Optional[str] = Form(default=None),
-    overrides: Optional[str] = Form(default=None),
     pdf: Optional[UploadFile] = File(default=None),
 ):
     """2공정 가격 분석 엔드포인트. 민간 시장(private)만 FOB 역산 로직을 수행한다."""
