@@ -353,6 +353,47 @@ function _loadReports() {
   catch { return []; }
 }
 
+function _loadReportsFull() {
+  try   { return JSON.parse(localStorage.getItem(REPORTS_FULL_LS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function _saveReportsFull(map) {
+  try { localStorage.setItem(REPORTS_FULL_LS_KEY, JSON.stringify(map || {})); }
+  catch (e) { console.warn('보고서 full blob 저장 실패:', e); }
+}
+
+/**
+ * 2공정 파이프라인이 실제로 사용할 최소 full blob.
+ * result 전체를 그대로 저장하면 용량이 크므로 필요한 필드만 뽑는다.
+ */
+function _buildReportFullBlob(result) {
+  if (!result || typeof result !== 'object') return null;
+  const pc   = result.price_comparison || {};
+  const same = Array.isArray(pc.same_ingredient) ? pc.same_ingredient : [];
+  const comp = Array.isArray(pc.competitors)     ? pc.competitors     : [];
+  const keep = rows => rows.slice(0, 30).map(r => ({
+    trade_name: r.trade_name || '',
+    strength:   r.strength   || '',
+    price:      (typeof r.price === 'number') ? r.price : null,
+    currency:   r.currency || 'SAR',
+    source:     r.source   || '',
+    type:       r.type     || '',
+  }));
+  return {
+    trade_name:  result.trade_name  || result.product_id || '',
+    ingredient:  result.inn         || result.ingredient || '',
+    strength:    result.strength    || '',
+    dosage_form: result.dosage_form || '',
+    hs_code:     result.hs_code     || null,
+    price_sar:   (result.price_comparison?.summary?.avg ?? null),
+    price_comparison: {
+      same_ingredient: keep(same),
+      competitors:     keep(comp),
+    },
+  };
+}
+
 /**
  * 1공정 완료 후 renderResult()가 호출 → 보고서 탭에 항목 추가.
  * @param {object|null} result  분석 결과
@@ -1421,6 +1462,23 @@ async function _submitP2Analysis({ useLastState = false, overrides = null } = {}
     return;
   }
 
+  _p2LastPayload = {
+    input_mode: _p2InputMode,
+    market_type: _p2Market,
+    report_id: (document.getElementById('p2-report-select') || {}).value || null,
+    report_data: reportFullBlob,
+    manual_product: _p2InputMode === 'manual' ? document.getElementById('p2-manual-product').value.trim() : null,
+    pdf_file: (document.getElementById('p2-pdf-input')?.files || [])[0] || null,
+  };
+
+  await _p2PerformRequest(fd);
+}
+
+async function _p2PerformRequest(fd) {
+  if (_p2Running) return;
+  _p2Running = true;
+  const btn  = document.getElementById('p2-btn-run');
+  const icon = document.getElementById('p2-btn-icon');
   if (btn) btn.disabled = true;
   if (icon) icon.textContent = '⏳';
 
@@ -1428,7 +1486,7 @@ async function _submitP2Analysis({ useLastState = false, overrides = null } = {}
     const fd = _p2BuildFormData(state, overrides);
     const res = await fetch('/api/p2/price-analyze', { method: 'POST', body: fd });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    if (!res.ok || data.ok === false) {
       _p2ShowError(data.detail || data.message || `요청 실패 (${res.status})`);
       return;
     }
@@ -1451,6 +1509,7 @@ async function _submitP2Analysis({ useLastState = false, overrides = null } = {}
     console.warn('2공정 분석 요청 실패:', e);
     _p2ShowError('네트워크 오류 — 잠시 후 다시 시도해 주세요.');
   } finally {
+    _p2Running = false;
     if (icon) icon.textContent = '▶';
     _p2UpdateRunEnabled();
   }

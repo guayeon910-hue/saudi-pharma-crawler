@@ -1788,6 +1788,7 @@ async def api_p2_price_analyze(
     report_data: Optional[str] = Form(default=None),
     overrides: Optional[str] = Form(default=None),
     manual_product: Optional[str] = Form(default=None),
+    overrides: Optional[str] = Form(default=None),
     pdf: Optional[UploadFile] = File(default=None),
 ):
     """2공정 가격 분석 엔드포인트. 민간 시장(private)만 FOB 역산 로직을 수행한다."""
@@ -1856,7 +1857,24 @@ async def api_p2_price_analyze(
         if not rid and not has_pdf:
             return JSONResponse(
                 status_code=400,
-                content={"ok": False, "detail": "저장된 보고서(report_id) 선택 또는 PDF 업로드가 필요합니다."},
+                content={"ok": False, "detail": "report_data JSON 파싱 실패."},
+            )
+
+    # v1 제약: manual + private 금지
+    if im == "manual" and mt == "private":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "detail": "민간 시장 분석은 1공정 보고서(또는 PDF)가 필요합니다. 품목명만으로는 v1에서 지원하지 않습니다.",
+            },
+        )
+
+    if im == "ai":
+        if not report_payload and not rid and not has_pdf:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "detail": "저장된 보고서(report_data) 또는 PDF 업로드가 필요합니다."},
             )
     else:
         if not man:
@@ -1865,6 +1883,8 @@ async def api_p2_price_analyze(
                 content={"ok": False, "detail": "품목명(manual_product)을 입력하세요."},
             )
 
+    # PDF 크기/포맷 검증 + 바이트 수집
+    pdf_bytes: Optional[bytes] = None
     if has_pdf:
         ctype = (pdf.content_type or "").lower()
         if ctype and "pdf" not in ctype and ctype != "application/octet-stream":
@@ -1879,8 +1899,8 @@ async def api_p2_price_analyze(
             chunk = await pdf.read(65536)
             if not chunk:
                 break
-            total += len(chunk)
-            if total > max_bytes:
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
                 return JSONResponse(
                     status_code=413,
                     content={"ok": False, "detail": "PDF는 8MB 이하만 허용됩니다."},
@@ -1907,14 +1927,57 @@ async def api_p2_price_analyze(
                 content={"ok": False, "detail": f"민간 시장 FOB 역산 실패: {exc}"},
             )
 
+    # private 파이프라인 분기
+    if mt == "private":
+        if not report_payload and not pdf_bytes:
+            # rid만 전달되고 report_data가 없으면 서버가 localStorage를 모르니 거절한다.
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "detail": "저장된 1공정 보고서 본문(report_data)이 필요합니다. 구버전 보고서라면 1공정을 다시 실행하거나 PDF 업로드를 사용하세요.",
+                },
+            )
+        try:
+            from frontend.fob_private import run_private_pipeline
+        except Exception as exc:
+            logger.exception("fob_private 모듈 로드 실패: %s", exc)
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "detail": "FOB 파이프라인 로드 실패."},
+            )
+
+        fx = await asyncio.to_thread(_fetch_exchange_rates)
+        llm = _get_llm()
+        try:
+            result = await asyncio.to_thread(
+                run_private_pipeline,
+                report_data=report_payload,
+                pdf_bytes=pdf_bytes,
+                overrides=overrides,
+                exchange_rates=fx,
+                llm=llm,
+            )
+        except Exception as exc:
+            logger.exception("private 파이프라인 실패: %s", exc)
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "detail": f"분석 중 오류: {exc!s}"[:300]},
+            )
+        if not result.get("ok"):
+            return JSONResponse(status_code=400, content=result)
+        return {"market_type": "private", **result}
+
+    # public: 기존 스텁 유지
     return {
         "ok": True,
+        "market_type": "public",
         "status": "stub",
-        "message": "가격 분석 파이프라인은 곧 연결됩니다. 현재는 스텁 응답입니다.",
+        "message": "공공 시장(NUPCO/SFDA) 분석 파이프라인은 곧 연결됩니다. 현재는 스텁 응답입니다.",
         "received": {
             "input_mode": im,
-            "market_type": mt,
             "has_report_id": bool(rid),
+            "has_report_data": report_payload is not None,
             "has_pdf": has_pdf,
             "manual_len": len(man) if im == "manual" else 0,
         },
