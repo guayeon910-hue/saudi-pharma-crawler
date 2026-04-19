@@ -11,7 +11,7 @@
 
 | 항목 | 내용 |
 |------|------|
-| 접속 URL | Render 대시보드 → 해당 **Web Service** → 상단 URL (형식은 보통 `https://<서비스-이름>.onrender.com`) |
+| 접속 URL | **[https://saudi-pharma-crawler.onrender.com/](https://saudi-pharma-crawler.onrender.com/)** (Render 대시보드에서 동일하게 확인 가능) |
 | 헬스 체크 | `GET /healthz` → `{"status":"ok"}` |
 | 환경 변수 | Render → 해당 서비스 → **Environment** — 아래 「환경변수」표와 동일한 키를 설정 (`CLAUDE_API_KEY` 등) |
 | 주의 | 무료 플랜은 일정 시간 미사용 후 **콜드 스타트**로 첫 요청이 지연될 수 있다 |

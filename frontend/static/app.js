@@ -1193,7 +1193,7 @@ function _p2UpdateManualNote() {
   note.style.display = 'block';
   note.textContent = _p2Market === 'private'
     ? '민간 시장은 v1에서 직접 입력을 지원하지 않습니다. 저장된 1공정 보고서 또는 PDF를 사용하세요.'
-    : '직접 입력은 현재 공공 시장 스텁 경로에서만 참고용으로 지원됩니다.';
+    : '직접 입력은 공공 시장에서만 참고용으로 지원됩니다. (가격 표본이 없으면 분석이 거절될 수 있습니다.)';
 }
 
 function setP2InputMode(mode, el) {
