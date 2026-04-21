@@ -151,26 +151,6 @@ function toggleCustomForm() {
  * 1공정 완료(renderResult) 또는 바이어 발굴 완료(_pollP3) 시 호출.
  */
 function _autoRunSaudiPanels(productKey) {
-  const pk  = productKey || _currentKey || document.getElementById('product-select')?.value || null;
-  if (!pk) return;
-
-  // ① 경쟁사 유통 구도 — 자동 실행
-  try {
-    const inn = INN_MAP[pk] || null;
-    loadCompetitorMap({ product_key: pk, target_inn: inn });
-  } catch (_) { /* swallow */ }
-
-  // ② White-Space 분석 — INN 자동 입력 후 실행
-  try {
-    const rawInn = INN_MAP[pk] || '';
-    const innFirst = rawInn.split(/\s*[\/+]\s*/)[0].trim();
-    if (!innFirst) return;
-    const innEl = document.getElementById('p3-ws-inn');
-    if (innEl) innEl.value = innFirst;
-    const wsCard = document.getElementById('p3-whitespace-card');
-    if (wsCard) wsCard.style.display = '';
-    runP3WhiteSpace();
-  } catch (_) { /* swallow */ }
 }
 
 /**
