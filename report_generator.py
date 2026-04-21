@@ -113,9 +113,27 @@ def generate_report(
     analysis: dict | None = None,
     refs: list[dict] | None = None,
     report_meta: dict | None = None,
+    exchange_rates: dict | None = None,
 ) -> Path:
     """한국어 시장 분석 보고서 DOCX 생성."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 환율 변환 헬퍼 (SAR 기준)
+    _sar_usd = (exchange_rates or {}).get("sar_usd") or (1 / 3.75)
+    _sar_krw = (exchange_rates or {}).get("sar_krw") or 392.64
+    _fx_source = (exchange_rates or {}).get("source", "fallback")
+
+    def _to_usd(price_sar: Any) -> str:
+        try:
+            return f"${float(price_sar) * _sar_usd:.2f}"
+        except (TypeError, ValueError):
+            return ""
+
+    def _to_krw(price_sar: Any) -> str:
+        try:
+            return f"₩{int(float(price_sar) * _sar_krw):,}"
+        except (TypeError, ValueError):
+            return ""
 
     if isinstance(drug, dict):
         trade_name = drug.get("trade_name", "Unknown")
@@ -375,6 +393,13 @@ def generate_report(
     doc.add_paragraph().add_run("부록: 수집 요약").bold = True
     total_matches = search_data.get("total_matches", 0)
     doc.add_paragraph(f"총 매칭 건수: {total_matches} | 생성 시각(UTC): {timestamp}")
+    fx_note = doc.add_paragraph(
+        f"※ 가격 추정치 안내: SAR 기준 공개 데이터 역산값으로 실제 입찰·협상가와 차이가 있을 수 있습니다. "
+        f"USD/KRW 환산은 {_fx_source} 환율(1 SAR ≈ ${_sar_usd:.4f} / ₩{_sar_krw:,.0f}) 기준입니다. "
+        "의사결정 전 현지 에이전트 및 최신 환율을 확인하시기 바랍니다."
+    )
+    fx_note.runs[0].font.size = Pt(8)
+    fx_note.runs[0].font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
 
     sfda_matches = []
     for sr in source_results if isinstance(source_results, list) else []:
@@ -382,15 +407,17 @@ def generate_report(
             sfda_matches.extend(sr["matches"])
     if sfda_matches:
         doc.add_paragraph("SFDA/공공조달 샘플 (최대 8건):")
-        ap = doc.add_table(rows=1 + min(8, len(sfda_matches)), cols=4)
+        ap = doc.add_table(rows=1 + min(8, len(sfda_matches)), cols=6)
         ap.style = "Table Grid"
-        for i, h in enumerate(["품목", "성분", "함량", "가격(SAR)"]):
+        for i, h in enumerate(["품목", "성분", "함량", "SAR", "USD", "KRW"]):
             ap.rows[0].cells[i].text = h
         for ri, m in enumerate(sfda_matches[:8], start=1):
             ap.rows[ri].cells[0].text = str(m.get("trade_name", ""))
             ap.rows[ri].cells[1].text = str(m.get("scientific_name", ""))
             ap.rows[ri].cells[2].text = str(m.get("strength", ""))
             ap.rows[ri].cells[3].text = str(m.get("price_sar", ""))
+            ap.rows[ri].cells[4].text = _to_usd(m.get("price_sar"))
+            ap.rows[ri].cells[5].text = _to_krw(m.get("price_sar"))
 
     retail_matches = []
     for sr in source_results if isinstance(source_results, list) else []:
@@ -400,14 +427,17 @@ def generate_report(
             )
     if retail_matches:
         doc.add_paragraph("민간 소매 샘플 (최대 8건):")
-        rp = doc.add_table(rows=1 + min(8, len(retail_matches)), cols=3)
+        rp = doc.add_table(rows=1 + min(8, len(retail_matches)), cols=5)
         rp.style = "Table Grid"
-        for i, h in enumerate(["상품", "가격", "출처"]):
+        for i, h in enumerate(["상품", "SAR", "USD", "KRW", "출처"]):
             rp.rows[0].cells[i].text = h
         for ri, m in enumerate(retail_matches[:8], start=1):
+            p_sar = m.get("price_sar", m.get("price", ""))
             rp.rows[ri].cells[0].text = str(m.get("name", m.get("trade_name", "")))
-            rp.rows[ri].cells[1].text = str(m.get("price_sar", m.get("price", "")))
-            rp.rows[ri].cells[2].text = str(m.get("_source", ""))[:40]
+            rp.rows[ri].cells[1].text = str(p_sar)
+            rp.rows[ri].cells[2].text = _to_usd(p_sar)
+            rp.rows[ri].cells[3].text = _to_krw(p_sar)
+            rp.rows[ri].cells[4].text = str(m.get("_source", ""))[:40]
 
     doc.add_paragraph("")
     footer = doc.add_paragraph()

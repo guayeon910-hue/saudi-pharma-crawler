@@ -2425,3 +2425,62 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 
 /* Saudi White-Space card wrapper */
 .p3-whitespace-card { background: var(--card); border-radius: 20px; box-shadow: var(--sh); padding: 16px 18px 14px; margin-top: 14px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   TERM TOOLTIPS
+══════════════════════════════════════════════════════════════════════ */
+.term {
+  border-bottom: 1px dashed currentColor;
+  cursor: help;
+  position: relative;
+  display: inline-block;
+}
+.term::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 11px;
+  font-weight: 400;
+  white-space: normal;
+  width: 230px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 9999;
+  line-height: 1.55;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  text-align: left;
+}
+.term:hover::after { opacity: 1; }
+
+/* ── 가격 면책 배너 ── */
+.price-disclaimer {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(0,0,0,0.03);
+  border-left: 3px solid #94a3b8;
+  padding: 7px 11px;
+  border-radius: 0 6px 6px 0;
+  margin-top: 10px;
+  line-height: 1.65;
+}
+.price-disclaimer strong { color: var(--navy); font-weight: 700; }
+
+/* ── 공공/민간 주의사항 배너 ── */
+.public-private-note {
+  font-size: 11px;
+  color: #7a4100;
+  background: rgba(243,156,18,0.10);
+  border: 1px solid rgba(243,156,18,0.30);
+  padding: 5px 10px;
+  border-radius: 6px;
+  margin-top: 7px;
+  line-height: 1.55;
+}
+.public-private-note strong { font-weight: 700; }
