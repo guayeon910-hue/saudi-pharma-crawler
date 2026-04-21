@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 import tempfile
@@ -1917,18 +1918,33 @@ async def api_p3_white_space(req: P3WhiteSpaceRequest):
             content={"ok": False, "error": "Supabase 미설정 — products 테이블 조회 불가."},
         )
 
-    # products 전체(KSA) 중 agent_or_supplier 가 있는 레코드만 fetch
+    # products 전체(KSA) 조회 — 실제 DB 컬럼 기반 (agent_or_supplier → manufacturer 매핑)
     products: list[dict] = []
+    _p3_fetch_note: Optional[str] = None
     try:
         resp = (
             sb.table("products")
-            .select("product_id,trade_name,inn_name,agent_or_supplier,atc_code,source_tier")
+            .select("product_id,trade_name,inn_name,manufacturer,source_tier,inn_id")
             .eq("country", "SA")
-            .not_.is_("agent_or_supplier", "null")
+            .not_.is_("manufacturer", "null")
             .limit(max(100, min(req.product_limit, 10000)))
             .execute()
         )
-        products = resp.data or []
+        raw = resp.data or []
+        # DB 컬럼 → analytics 모듈 기대 필드로 정규화
+        products = [
+            {
+                "product_id": r.get("product_id"),
+                "trade_name": r.get("trade_name"),
+                "inn_name": r.get("inn_name"),
+                "agent_or_supplier": r.get("manufacturer"),
+                # atc_code: DB에 없으면 inn_id 앞 7자(A10BK01 형식)로 추정
+                "atc_code": (r.get("inn_id") or "")[:7] or None,
+                "source_tier": r.get("source_tier"),
+            }
+            for r in raw
+            if r.get("manufacturer")
+        ]
     except Exception as exc:
         logger.warning("P3 white-space DB 조회 실패: %s", exc)
         return JSONResponse(
@@ -1944,7 +1960,7 @@ async def api_p3_white_space(req: P3WhiteSpaceRequest):
             "total_agents": 0,
             "agents_in_atc": 0,
             "candidates": [],
-            "notes": ["products 테이블에 agent_or_supplier 가 있는 레코드가 없습니다."],
+            "notes": ["products 테이블에 manufacturer(유통사) 레코드가 없습니다."],
         }
 
     try:
@@ -1960,6 +1976,8 @@ async def api_p3_white_space(req: P3WhiteSpaceRequest):
         )
         result["ok"] = True
         result["products_scanned"] = len(products)
+        if _p3_fetch_note:
+            result.setdefault("notes", []).insert(0, _p3_fetch_note)
     except Exception as exc:
         logger.exception("P3 white-space 분석 실패")
         return JSONResponse(
@@ -2155,20 +2173,39 @@ async def api_p1_competitor_map(req: P1CompetitorMapRequest):
             content={"ok": False, "error": "Supabase 미설정 — products 조회 불가."},
         )
 
-    # 1) SFDA 매칭 fetch (products 테이블, country=SA)
+    # 1) SFDA 매칭 fetch (products 테이블, country=SA) — 실제 DB 컬럼 기반
     products: list[dict] = []
+    _p5_fetch_note: Optional[str] = None
     try:
         resp = (
             sb.table("products")
-            .select("product_id,trade_name,inn_name,scientific_name,"
-                    "agent_or_supplier,atc_code,price_sar,regulatory_id,"
-                    "dosage_form,strength,source_tier,source_url")
+            .select("product_id,trade_name,inn_name,manufacturer,"
+                    "price,price_currency,registration_number,"
+                    "dosage_form,strength,source_tier,source_url,inn_id")
             .eq("country", "SA")
-            .not_.is_("agent_or_supplier", "null")
+            .not_.is_("manufacturer", "null")
             .limit(max(100, min(int(req.product_limit), 10000)))
             .execute()
         )
-        products = resp.data or []
+        raw = resp.data or []
+        # DB 컬럼 → analytics 모듈 기대 필드로 정규화
+        products = [
+            {
+                "product_id": r.get("product_id"),
+                "trade_name": r.get("trade_name"),
+                "inn_name": r.get("inn_name"),
+                "agent_or_supplier": r.get("manufacturer"),
+                "atc_code": (r.get("inn_id") or "")[:7] or None,
+                "price_sar": r.get("price") if r.get("price_currency") in ("SAR", None) else None,
+                "regulatory_id": r.get("registration_number"),
+                "dosage_form": r.get("dosage_form"),
+                "strength": r.get("strength"),
+                "source_tier": r.get("source_tier"),
+                "source_url": r.get("source_url"),
+            }
+            for r in raw
+            if r.get("manufacturer")
+        ]
     except Exception as exc:
         logger.warning("P1 competitor-map DB 조회 실패: %s", exc)
         return JSONResponse(
@@ -2255,6 +2292,8 @@ async def api_p1_competitor_map(req: P1CompetitorMapRequest):
         result["products_scanned"] = len(products)
         result["products_matched"] = len(matched)
         result["tender_records_used"] = len(tender_records) if tender_records else 0
+        if _p5_fetch_note:
+            result.setdefault("notes", []).insert(0, _p5_fetch_note)
         return result
     except Exception as exc:
         logger.exception("P1 competitor-map 실패")
