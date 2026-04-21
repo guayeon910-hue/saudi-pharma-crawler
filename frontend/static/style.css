@@ -1570,6 +1570,14 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 }
 .btn-toggle-custom:hover { opacity: 1; }
 
+/* 사우디 전용 경쟁사·White-Space 토글 래퍼 */
+.sa-advanced-wrap {
+  margin-top: 8px;
+}
+.sa-advanced-toggle {
+  margin-bottom: 0;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    29. P2 · 3열 시나리오 카드
 ══════════════════════════════════════════════════════════════════════════ */

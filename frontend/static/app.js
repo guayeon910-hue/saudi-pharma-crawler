@@ -136,6 +136,34 @@ function _hideCustomLoading() { const el = document.getElementById('custom-loadi
 function _showP2Loading()     { const el = document.getElementById('p2-loading-state');     if (el) el.style.display = 'flex'; }
 function _hideP2Loading()     { const el = document.getElementById('p2-loading-state');     if (el) el.style.display = 'none'; }
 
+/* 신약 직접 분석 폼 토글 */
+function toggleCustomForm() {
+  const wrap = document.getElementById('custom-form-wrap');
+  const btn  = document.getElementById('btn-custom-toggle');
+  if (!wrap) return;
+  const open = wrap.style.display === 'none' || wrap.style.display === '';
+  wrap.style.display = open ? 'block' : 'none';
+  if (btn) btn.textContent = (open ? '▾' : '▸') + ' 신약 직접 분석';
+}
+
+/* 사우디 전용 경쟁사·White-Space 패널 토글 */
+let _saAdvancedOpen = false;
+function toggleSaAdvanced() {
+  _saAdvancedOpen = !_saAdvancedOpen;
+  const body = document.getElementById('sa-advanced-body');
+  const btn  = document.getElementById('btn-sa-advanced-toggle');
+  if (body) body.style.display = _saAdvancedOpen ? '' : 'none';
+  if (btn)  btn.textContent = (_saAdvancedOpen ? '▾' : '▸') + ' 경쟁사 분석 & White-Space';
+  // 처음 열 때 현재 선택 품목으로 경쟁사 맵 자동 로드
+  if (_saAdvancedOpen) {
+    try {
+      const pk  = _currentKey || document.getElementById('product-select')?.value || null;
+      const inn = pk ? (INN_MAP[pk] || null) : null;
+      if (pk) loadCompetitorMap({ product_key: pk, target_inn: inn });
+    } catch (_) { /* swallow */ }
+  }
+}
+
 /**
  * 탭 전환: 모든 .page / .tab 비활성 후 대상만 활성화.
  * @param {string} id  — 대상 페이지 element ID
@@ -980,13 +1008,8 @@ function renderResult(result, refs, pdfName) {
     // N3: 1공정 완료 → Todo 자동 체크
     markTodoDone('p1');
 
-    // Phase 5: 경쟁사 유통 에이전트 역추적 (비동기, 실패해도 다른 UI 영향 없음)
-    try {
-      const pk = result.product_id || result.product_key || null;
-      const tn = result.trade_name || null;
-      const inn = INN_MAP[result.product_id] || result.inn || null;
-      loadCompetitorMap({ product_key: pk, trade_name: tn, target_inn: inn });
-    } catch (_) { /* swallow */ }
+    // Phase 5: 경쟁사 유통 에이전트 역추적 — 자동 실행 안 함 (사용자가 직접 펼쳐야 함)
+    // loadCompetitorMap() 은 토글 버튼 클릭 시 호출됩니다.
   }
 
   /* ─ B4: 논문 카드 ─ */
