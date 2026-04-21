@@ -32,7 +32,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 진출 적합성 분석 — UPharma Export AI</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="/static/style.css?v=12"/>
+  <link rel="stylesheet" href="/static/style.css?v=18"/>
 </head>
 <body>
 <div class="app">
@@ -283,6 +283,17 @@
             <div class="card-title"><div class="card-title-dot"></div> Perplexity 추천 논문</div>
             <div id="papers-list"></div>
           </div>
+
+          <!-- Phase 5: 경쟁사 유통 에이전트 역추적 -->
+          <div class="competitor-map-card" id="competitor-map-card" style="display:none">
+            <div class="cm-header">
+              <div class="card-title"><div class="card-title-dot"></div> 경쟁사 유통 구도 (Competitor Agent Map)</div>
+              <div class="cm-sub">동일 성분/치료군 경쟁 브랜드의 사우디 유통 에이전트를 역산. 점유율은 SFDA 등록·가격·공공조달 실적 기반 상대 추정치입니다.</div>
+            </div>
+            <div class="cm-status" id="cm-status" style="display:none"></div>
+            <div class="cm-summary" id="cm-summary" style="display:none"></div>
+            <div class="cm-list" id="cm-list" style="display:none"></div>
+          </div>
         </div>
 
         <!-- PDF 보고서 카드 -->
@@ -515,6 +526,28 @@
                 <div class="p3-cache-list" id="p3-cache-list"></div>
               </div>
             </div>
+
+            <!-- ─── Phase 3: White-Space 빈틈 분석 ─────────────────────── -->
+            <div class="p3-whitespace-card" id="p3-whitespace-card">
+              <div class="p3-ws-header">
+                <div>
+                  <div class="p3-ws-title">🎯 White-Space 빈틈 분석</div>
+                  <div class="p3-ws-sub">같은 치료군(ATC) 에서 강한 유통망을 가지지만 타겟 성분은 미취급인 에이전트를 정량 추출.</div>
+                </div>
+              </div>
+              <div class="p3-ws-form">
+                <input id="p3-ws-inn" class="p3-input" type="text" placeholder="타겟 INN 입력 (예: dapagliflozin, semaglutide, trastuzumab)" />
+                <input id="p3-ws-atc" class="p3-input p3-ws-atc" type="text" maxlength="4" placeholder="ATC4 (선택)" title="ATC level3 (4글자, 예: A10B). INN 에서 자동 추출되지 않을 때 사용." />
+                <input id="p3-ws-min" class="p3-input p3-ws-min" type="number" value="3" min="1" max="50" title="최소 품목 수(페이퍼 컴퍼니 거르기)" />
+                <button type="button" class="btn-analyze" id="p3-ws-btn" onclick="runP3WhiteSpace()">
+                  <span id="p3-ws-btn-icon">🔍</span> 빈틈 분석
+                </button>
+              </div>
+              <p class="p3-inline-error" id="p3-ws-error" style="display:none"></p>
+              <div class="p3-ws-summary" id="p3-ws-summary" style="display:none"></div>
+              <div class="p3-ws-results" id="p3-ws-results" style="display:none"></div>
+            </div>
+
             <div class="p3-actions">
               <button type="button" class="btn-analyze" onclick="goTab('rep', document.getElementById('tab-rep'))">보고서 탭으로 이동</button>
               <button type="button" class="btn-download p3-btn-secondary" onclick="toggleProcess('p2')">2공정 · 수출전략</button>
@@ -553,7 +586,7 @@
 </div><!-- /.app -->
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/app.js?v=12"></script>
+<script src="/static/app.js?v=18"></script>
 <script>
 (function () {
   var map = L.map('sa-map', {

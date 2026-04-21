@@ -19,6 +19,9 @@ tenacity>=9.0.0
 preon==0.1.2                        # 3단계 매칭: exact → partial → fuzzy
 jellyfish>=1.2.1                    # preon 의존: 문자열 유사도
 
+# ─── Phase 3 분석 (에이전트 포트폴리오 fuzzy match) ─────
+rapidfuzz>=3.10.0                   # MIT — agent_name 정규화·매칭
+
 # ─── 데이터 처리 ──────────────────────────────────────
 pandas>=2.2.3
 # polars==1.12.0      # 선택, 고성능 필요 시

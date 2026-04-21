@@ -1774,6 +1774,609 @@ button.p3-btn-secondary {
   font-weight: 700;
 }
 
+/* ── 20b. Phase 3 — White-Space(빈틈) 분석 카드 ────────────────────────── */
+.p3-whitespace-card {
+  margin-top: 16px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffdf7 0%, #fff 100%);
+  box-shadow: var(--sh2);
+  border: 1px solid rgba(243, 156, 18, .18);
+}
+
+.p3-ws-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.p3-ws-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.3;
+  letter-spacing: -.2px;
+}
+
+.p3-ws-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.p3-ws-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.p3-ws-form .p3-input { min-width: 180px; }
+.p3-ws-form .p3-ws-atc { max-width: 120px; min-width: 100px; flex: 0 0 auto; text-transform: uppercase; }
+.p3-ws-form .p3-ws-min { max-width: 100px; min-width: 90px; flex: 0 0 auto; }
+
+.p3-ws-form .btn-analyze {
+  flex: 0 0 auto;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 900;
+  font-size: 13px;
+  background: var(--navy);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background .15s, transform .08s;
+}
+
+.p3-ws-form .btn-analyze:hover:not(:disabled) { background: #0f2a54; }
+.p3-ws-form .btn-analyze:active:not(:disabled) { transform: translateY(1px); }
+.p3-ws-form .btn-analyze:disabled { opacity: .55; cursor: wait; }
+
+/* 요약 스탯 그리드 */
+.p3-ws-summary {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(23, 63, 120, .05);
+}
+
+.p3-ws-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.p3-ws-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 6px;
+}
+
+.p3-ws-stat-lbl {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.p3-ws-stat-val {
+  font-size: 15px;
+  color: var(--navy);
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.p3-ws-stat-val.accent { color: #d87900; }
+
+.p3-ws-unmatched {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p3-ws-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.p3-ws-note.warn {
+  background: rgba(243, 156, 18, .12);
+  color: #8a5500;
+  border: 1px solid rgba(243, 156, 18, .28);
+}
+
+/* 결과 카드 리스트 */
+.p3-ws-results {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.p3-ws-item {
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--sh3);
+  padding: 12px 14px 11px;
+  border: 1px solid rgba(23, 63, 120, .06);
+}
+
+.p3-ws-item-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.p3-ws-rank {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  min-width: 26px;
+}
+
+.p3-ws-item-main {
+  min-width: 0;
+}
+
+.p3-ws-item-agent {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p3-ws-item-meta {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p3-ws-strength {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(23, 63, 120, .05);
+}
+
+.p3-ws-strength-val {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1;
+}
+
+.p3-ws-strength-lbl {
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--muted);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.p3-ws-strength.strong { background: rgba(45, 152, 112, .14); }
+.p3-ws-strength.strong .p3-ws-strength-val { color: var(--green); }
+.p3-ws-strength.mid    { background: rgba(243, 156, 18, .14); }
+.p3-ws-strength.mid    .p3-ws-strength-val { color: #b57200; }
+.p3-ws-strength.weak   { background: rgba(149, 165, 166, .14); }
+.p3-ws-strength.weak   .p3-ws-strength-val { color: #5a6a6b; }
+
+.p3-ws-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.p3-ws-badge.missing {
+  background: linear-gradient(135deg, #ffe29f 0%, #ffb65c 100%);
+  color: #7a3e00;
+  box-shadow: 0 1px 0 rgba(122, 62, 0, .08) inset;
+}
+
+.p3-ws-badge.carrying {
+  background: rgba(23, 63, 120, .08);
+  color: var(--muted);
+}
+
+.p3-ws-pitch {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(243, 156, 18, .08);
+  border-left: 3px solid #f39c12;
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+/* Phase 4: Tender Power 블록 */
+.p3-ws-tp {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border-left: 3px solid #3a82f0;
+  background: rgba(58, 130, 240, .06);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.p3-ws-tp.strong { border-left-color: var(--green); background: rgba(45, 152, 112, .08); }
+.p3-ws-tp.mid    { border-left-color: #f39c12;       background: rgba(243, 156, 18, .08); }
+.p3-ws-tp.weak   { border-left-color: #95a5a6;       background: rgba(149, 165, 166, .08); }
+.p3-ws-tp.none   { border-left-color: rgba(23, 63, 120, .15); background: rgba(23, 63, 120, .03); }
+
+.p3-ws-tp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.p3-ws-tp-label {
+  font-size: 10.5px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--muted);
+}
+
+.p3-ws-tp-val {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.p3-ws-tp.none .p3-ws-tp-val.muted,
+.p3-ws-tp-val.muted {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p3-ws-tp-score {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1;
+}
+
+.p3-ws-tp.strong .p3-ws-tp-score { color: var(--green); }
+.p3-ws-tp.mid    .p3-ws-tp-score { color: #b57200; }
+.p3-ws-tp.weak   .p3-ws-tp-score { color: #5a6a6b; }
+
+.p3-ws-tp-unit {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.p3-ws-tp-stats {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.p3-ws-tp-atc {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.p3-ws-tp-sources {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: -2px;
+}
+
+.p3-ws-tp-src {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 900;
+  background: rgba(23, 63, 120, .06);
+  color: var(--muted);
+  letter-spacing: .2px;
+}
+
+.p3-ws-tp-src.etimad { background: rgba(58, 130, 240, .12); color: #2054b5; }
+.p3-ws-tp-src.nupco  { background: rgba(142, 68, 173, .12); color: #6c2a9e; }
+
+.p3-ws-note.info {
+  background: rgba(58, 130, 240, .08);
+  color: #1d3f78;
+  border: 1px solid rgba(58, 130, 240, .20);
+}
+
+/* ── 20c. Phase 5 — 경쟁사 유통 구도 카드 ────────────────────────── */
+.competitor-map-card {
+  margin-top: 14px;
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbf8ff 0%, #fff 100%);
+  box-shadow: var(--sh2);
+  border: 1px solid rgba(142, 68, 173, .18);
+}
+
+.cm-header { margin-bottom: 10px; }
+.cm-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.cm-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  background: rgba(23, 63, 120, .05);
+  color: var(--navy);
+}
+.cm-status.loading { background: rgba(58, 130, 240, .08); color: #2054b5; }
+.cm-status.err     { background: rgba(220, 53, 69, .10); color: var(--red); }
+.cm-status.info    { background: rgba(58, 130, 240, .08); color: #1d3f78; }
+
+.cm-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(142, 68, 173, .06);
+}
+
+.cm-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.cm-stat { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px; }
+.cm-stat-lbl {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.cm-stat-val {
+  font-size: 14px;
+  color: var(--navy);
+  font-weight: 900;
+  line-height: 1.2;
+}
+.cm-stat-val.accent { color: #6c2a9e; }
+
+.cm-filter-note {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(142, 68, 173, .18);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cm-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 9px;
+}
+
+.cm-empty {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(23, 63, 120, .06);
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.cm-item {
+  padding: 11px 13px 10px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--sh3);
+  border: 1px solid rgba(142, 68, 173, .10);
+}
+
+.cm-item.top { border-left: 4px solid #8e44ad; }
+.cm-item.mid { border-left: 4px solid rgba(142, 68, 173, .5); }
+.cm-item.low { border-left: 4px solid rgba(142, 68, 173, .22); }
+
+.cm-item-head {
+  display: grid;
+  grid-template-columns: auto 1fr 150px;
+  gap: 10px;
+  align-items: center;
+}
+
+.cm-rank {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  min-width: 24px;
+}
+
+.cm-item-main { min-width: 0; }
+
+.cm-item-agent {
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-item-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.cm-share {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 140px;
+}
+
+.cm-share-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(142, 68, 173, .10);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.cm-share-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8e44ad 0%, #b46cd9 100%);
+  border-radius: 999px;
+}
+
+.cm-item.top .cm-share-fill { background: linear-gradient(90deg, #6c2a9e 0%, #a03fd6 100%); }
+.cm-item.low .cm-share-fill { background: linear-gradient(90deg, rgba(142,68,173,.5) 0%, rgba(180,108,217,.5) 100%); }
+
+.cm-share-val {
+  font-size: 12px;
+  font-weight: 900;
+  color: #6c2a9e;
+}
+
+.cm-brands {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cm-brand-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(142, 68, 173, .08);
+  color: #4a1d6e;
+}
+
+.cm-brand-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  background: rgba(23, 63, 120, .06);
+  color: var(--muted);
+}
+
+.cm-tender-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  font-weight: 900;
+  background: rgba(58, 130, 240, .12);
+  color: #2054b5;
+}
+
+@media (max-width: 640px) {
+  .cm-item-head {
+    grid-template-columns: auto 1fr;
+  }
+  .cm-share {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+  }
+  .cm-share-bar { flex: 1; }
+}
+
+.p3-ws-samples {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.p3-ws-sample {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: rgba(23, 63, 120, .05);
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .p3-ws-item-head {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "rank agent strength"
+      "rank meta  badge";
+  }
+  .p3-ws-rank       { grid-area: rank; }
+  .p3-ws-item-main  { grid-area: agent; }
+  .p3-ws-strength   { grid-area: strength; }
+  .p3-ws-item-head > .p3-ws-badge { grid-area: badge; justify-self: end; }
+}
+
 /* ── 21. 빈 페이지 (잔여 플레이스홀더용) ───────────────────────────────── */
 .empty-page {
   display: flex;
@@ -2164,6 +2767,107 @@ button.p3-btn-secondary {
   margin-top: 8px;
 }
 .p2-dist-inline span { font-weight: 700; color: var(--navy); }
+
+/* ── Phase 2: 가격 풀 출처 투명성 배너 ───────────────────────────────── */
+.p2-sources-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--inner);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.p2-sources-title {
+  font-weight: 900;
+  color: var(--navy);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.p2-sources-total {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.p2-tier-bar {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.05);
+  margin-bottom: 8px;
+}
+.p2-tier-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 900;
+  color: #fff;
+  text-align: center;
+  min-width: 0;
+}
+.p2-tier-public   { background: #2e86de; }
+.p2-tier-proc     { background: #8e44ad; }
+.p2-tier-retail   { background: #27ae60; }
+.p2-tier-self     { background: #f39c12; }
+.p2-tier-unknown  { background: #95a5a6; }
+.p2-tier-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--navy);
+  font-weight: 700;
+}
+.p2-tier-legend .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.p2-src-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.p2-src-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.p2-src-public   { background: rgba(46, 134, 222, 0.12); color: #2e86de; border-color: rgba(46, 134, 222, 0.3); }
+.p2-src-proc     { background: rgba(142, 68, 173, 0.12); color: #8e44ad; border-color: rgba(142, 68, 173, 0.3); }
+.p2-src-retail   { background: rgba(39, 174, 96, 0.12); color: #27ae60; border-color: rgba(39, 174, 96, 0.3); }
+.p2-src-self     { background: rgba(243, 156, 18, 0.12); color: #d35400; border-color: rgba(243, 156, 18, 0.3); }
+.p2-src-unknown  { background: rgba(149, 165, 166, 0.14); color: #7f8c8d; border-color: rgba(149, 165, 166, 0.35); }
+.p2-diversity-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(243, 156, 18, 0.12);
+  border: 1px solid rgba(243, 156, 18, 0.35);
+}
+.p2-diversity-warn-item {
+  font-size: 11.5px;
+  color: #8a5100;
+  line-height: 1.55;
+  font-weight: 700;
+}
+.p2-diversity-warn-item + .p2-diversity-warn-item {
+  margin-top: 4px;
+}
 
 /* ── 반응형 추가 ────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {

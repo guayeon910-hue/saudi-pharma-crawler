@@ -967,6 +967,14 @@ function renderResult(result, refs, pdfName) {
 
     // N3: 1공정 완료 → Todo 자동 체크
     markTodoDone('p1');
+
+    // Phase 5: 경쟁사 유통 에이전트 역추적 (비동기, 실패해도 다른 UI 영향 없음)
+    try {
+      const pk = result.product_id || result.product_key || null;
+      const tn = result.trade_name || null;
+      const inn = INN_MAP[result.product_id] || result.inn || null;
+      loadCompetitorMap({ product_key: pk, trade_name: tn, target_inn: inn });
+    } catch (_) { /* swallow */ }
   }
 
   /* ─ B4: 논문 카드 ─ */
@@ -1422,6 +1430,68 @@ function _p2RenderWarnings(items) {
     </div>`;
 }
 
+// ── Phase 2: 가격 풀 출처 투명성 배너 ───────────────────────────────────
+// price_pool_sources: [{source, tier, origin, count}]
+// price_pool_tier_counts: {public, procurement, retail, self_or_estimated, unknown}
+// diversity_warnings: [str, ...]
+function _p2RenderPriceSources(data) {
+  const sources = Array.isArray(data.price_pool_sources) ? data.price_pool_sources : [];
+  const tierCounts = data.price_pool_tier_counts || {};
+  const divWarnings = Array.isArray(data.diversity_warnings) ? data.diversity_warnings : [];
+  if (!sources.length && !divWarnings.length) return '';
+
+  const total = sources.reduce((a, s) => a + (Number(s.count) || 0), 0) || 0;
+  const pub = Number(tierCounts.public || 0);
+  const proc = Number(tierCounts.procurement || 0);
+  const ret = Number(tierCounts.retail || 0);
+  const self = Number(tierCounts.self_or_estimated || 0);
+  const unk = Number(tierCounts.unknown || 0);
+
+  const pct = (n) => (total > 0 ? Math.max(2, Math.round((n / total) * 100)) : 0);
+  const bar = (total > 0) ? `
+    <div class="p2-tier-bar" title="출처 tier 분포">
+      ${pub > 0 ? `<span class="p2-tier-seg p2-tier-public" style="flex:${pub};" title="공공/SFDA: ${pub}건">${pct(pub)}%</span>` : ''}
+      ${proc > 0 ? `<span class="p2-tier-seg p2-tier-proc" style="flex:${proc};" title="조달/NUPCO·Etimad: ${proc}건">${pct(proc)}%</span>` : ''}
+      ${ret > 0 ? `<span class="p2-tier-seg p2-tier-retail" style="flex:${ret};" title="민간 소매: ${ret}건">${pct(ret)}%</span>` : ''}
+      ${self > 0 ? `<span class="p2-tier-seg p2-tier-self" style="flex:${self};" title="자체/추정: ${self}건">${pct(self)}%</span>` : ''}
+      ${unk > 0 ? `<span class="p2-tier-seg p2-tier-unknown" style="flex:${unk};" title="미분류: ${unk}건">${pct(unk)}%</span>` : ''}
+    </div>` : '';
+
+  const chips = sources.slice(0, 10).map(s => {
+    const originCls = ({
+      public: 'p2-src-public',
+      procurement: 'p2-src-proc',
+      retail: 'p2-src-retail',
+      self: 'p2-src-self',
+      estimated: 'p2-src-self',
+    })[s.origin] || 'p2-src-unknown';
+    return `<span class="p2-src-chip ${originCls}">${_escHtml(s.source)} · ${Number(s.count || 0)}건</span>`;
+  }).join('');
+
+  const warns = divWarnings.length ? `
+    <div class="p2-diversity-warn">
+      ${divWarnings.map(w => `<div class="p2-diversity-warn-item">${_escHtml(w)}</div>`).join('')}
+    </div>` : '';
+
+  const legend = `
+    <div class="p2-tier-legend">
+      ${pub > 0 ? `<span><span class="dot p2-tier-public"></span>공공 ${pub}</span>` : ''}
+      ${proc > 0 ? `<span><span class="dot p2-tier-proc"></span>조달 ${proc}</span>` : ''}
+      ${ret > 0 ? `<span><span class="dot p2-tier-retail"></span>민간 소매 ${ret}</span>` : ''}
+      ${self > 0 ? `<span><span class="dot p2-tier-self"></span>자체/추정 ${self}</span>` : ''}
+      ${unk > 0 ? `<span><span class="dot p2-tier-unknown"></span>미분류 ${unk}</span>` : ''}
+    </div>`;
+
+  return `
+    <div class="p2-sources-panel">
+      <div class="p2-sources-title">가격 풀 출처 구성 <span class="p2-sources-total">총 ${total}건</span></div>
+      ${bar}
+      ${legend}
+      ${chips ? `<div class="p2-src-chips">${chips}</div>` : ''}
+      ${warns}
+    </div>`;
+}
+
 function _p2RenderStepsTable(steps) {
   if (!steps || !steps.length) return '';
   return `
@@ -1569,6 +1639,7 @@ function renderP2Result(data) {
         ${tagParts.length ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">${_escHtml(tagParts.join(' · '))}</div>` : ''}
         ${ratShort ? `<div style="margin-top:10px;line-height:1.6;">${_escHtml(ratShort)}</div>` : ''}
         ${_p2RenderWarnings(classification.warnings || [])}
+        ${_p2RenderPriceSources(data)}
         ${distParts.length ? `<div class="p2-dist-inline">${distParts.join('')}</div>` : ''}
         ${stats.warning ? `<div style="margin-top:8px;font-size:12px;color:var(--orange2);font-weight:700;">${_escHtml(stats.warning)}</div>` : ''}
       </div>`;
@@ -1852,6 +1923,443 @@ async function runP3Prospects() {
     _p3ShowError('네트워크 오류 — 잠시 후 다시 시도해 주세요.');
   } finally {
     _p3SetLoading(false);
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   §12b. Phase 3 — White-Space (빈틈) 포트폴리오 분석
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function _p3WSHideError() {
+  const el = document.getElementById('p3-ws-error');
+  if (el) { el.style.display = 'none'; el.textContent = ''; }
+}
+
+function _p3WSShowError(msg) {
+  const el = document.getElementById('p3-ws-error');
+  if (!el) return;
+  el.textContent = msg || '요청 실패';
+  el.style.display = 'block';
+}
+
+function _p3WSSetLoading(loading) {
+  const btn = document.getElementById('p3-ws-btn');
+  const icon = document.getElementById('p3-ws-btn-icon');
+  if (btn) btn.disabled = !!loading;
+  if (icon) icon.textContent = loading ? '⏳' : '🔍';
+}
+
+function _p3WSStrengthClass(score) {
+  const s = Number(score) || 0;
+  if (s >= 70) return 'strong';
+  if (s >= 40) return 'mid';
+  return 'weak';
+}
+
+/** Phase 4: Tender Power 셀 HTML. band: strong/mid/weak/none */
+function _p3WSRenderTenderPower(tp) {
+  if (!tp) return '';
+  const score   = Number(tp.score || 0);
+  const band    = String(tp.band || 'none');
+  const count   = Number(tp.count_last_2y || 0);
+  const mnSar   = Number(tp.total_value_mn_sar || 0);
+  const atcMatch = !!tp.has_target_atc_match;
+  const sources = tp.sources || {};
+  const etimadN = Number(sources.etimad || 0);
+  const nupcoN  = Number(sources.nupco  || 0);
+
+  if (score <= 0 && count === 0) {
+    return `
+      <div class="p3-ws-tp none">
+        <div class="p3-ws-tp-label">Tender Power</div>
+        <div class="p3-ws-tp-val muted">실적 없음</div>
+      </div>
+    `;
+  }
+
+  const valStr = mnSar >= 1
+    ? `${mnSar.toFixed(1)}M SAR`
+    : `${Math.round(mnSar * 1000)}K SAR`;
+  const atcBadge = atcMatch
+    ? `<span class="p3-ws-tp-atc">✓ 타겟 ATC 낙찰</span>`
+    : '';
+  const srcChips = [
+    etimadN > 0 ? `<span class="p3-ws-tp-src etimad">Etimad ${etimadN}</span>` : '',
+    nupcoN  > 0 ? `<span class="p3-ws-tp-src nupco">NUPCO ${nupcoN}</span>`   : '',
+  ].filter(Boolean).join('');
+
+  return `
+    <div class="p3-ws-tp ${_escHtml(band)}">
+      <div class="p3-ws-tp-main">
+        <div class="p3-ws-tp-label">Tender Power</div>
+        <div class="p3-ws-tp-val">
+          <span class="p3-ws-tp-score">${score.toFixed(1)}</span>
+          <span class="p3-ws-tp-unit">/100</span>
+        </div>
+      </div>
+      <div class="p3-ws-tp-stats">
+        <span>2년 ${count}건</span>
+        <span>·</span>
+        <span>${_escHtml(valStr)}</span>
+        ${atcBadge ? ' · ' + atcBadge : ''}
+      </div>
+      ${srcChips ? `<div class="p3-ws-tp-sources">${srcChips}</div>` : ''}
+    </div>
+  `;
+}
+
+function _p3WSRenderSummary(data) {
+  const host = document.getElementById('p3-ws-summary');
+  if (!host) return;
+
+  const innLabel  = String(data.target_inn || '-');
+  const atcLabel  = String(data.target_atc_level3 || '-');
+  const totalAgt  = Number(data.total_agents || 0);
+  const inAtc     = Number(data.agents_in_atc || 0);
+  const scanned   = Number(data.products_scanned || 0);
+  const unmatched = Number(data.unmatched_product_count || 0);
+  const cand      = Array.isArray(data.candidates) ? data.candidates.length : 0;
+
+  const noteHtml = data.error
+    ? `<div class="p3-ws-note warn">⚠️ ${_escHtml(String(data.error))}</div>`
+    : '';
+
+  // Phase 4: Tender Power 메타 (공공조달 실적 커버리지)
+  const tpMeta = data.tender_power_meta || null;
+  let tpMetaHtml = '';
+  if (tpMeta) {
+    if (tpMeta.error) {
+      tpMetaHtml = `<div class="p3-ws-note warn">Tender Power 계산 실패: ${_escHtml(tpMeta.error)}</div>`;
+    } else if (tpMeta.note) {
+      tpMetaHtml = `<div class="p3-ws-note info">ℹ️ ${_escHtml(tpMeta.note)}</div>`;
+    } else {
+      const cN  = Number(tpMeta.contracts_scanned || 0);
+      const aN  = Number(tpMeta.awards_scanned || 0);
+      const um  = Number(tpMeta.unmatched_supplier_count || 0);
+      const sortLabel = tpMeta.sort_applied === 'tender_power_desc'
+        ? '정렬: Tender Power 내림차순'
+        : '';
+      tpMetaHtml = `
+        <div class="p3-ws-note info">
+          📊 공공조달 실적 스캔: Etimad ${cN}건 · NUPCO ${aN}건
+          ${um > 0 ? `· 미매치 공급자 ${um}건` : ''}
+          ${sortLabel ? `· ${_escHtml(sortLabel)}` : ''}
+        </div>
+      `;
+    }
+  }
+
+  host.innerHTML = `
+    <div class="p3-ws-summary-row">
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">타겟 INN</div>
+        <div class="p3-ws-stat-val">${_escHtml(innLabel)}</div>
+      </div>
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">ATC level3</div>
+        <div class="p3-ws-stat-val">${_escHtml(atcLabel)}</div>
+      </div>
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">전체 에이전트</div>
+        <div class="p3-ws-stat-val">${totalAgt}</div>
+      </div>
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">치료군 내 강자</div>
+        <div class="p3-ws-stat-val">${inAtc}</div>
+      </div>
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">빈틈 후보</div>
+        <div class="p3-ws-stat-val accent">${cand}</div>
+      </div>
+      <div class="p3-ws-stat">
+        <div class="p3-ws-stat-lbl">스캔 품목</div>
+        <div class="p3-ws-stat-val">${scanned}${unmatched ? ` <span class="p3-ws-unmatched">(${unmatched} 미매치)</span>` : ''}</div>
+      </div>
+    </div>
+    ${tpMetaHtml}
+    ${noteHtml}
+  `;
+  host.style.display = 'block';
+}
+
+function _p3WSRenderResults(data) {
+  const host = document.getElementById('p3-ws-results');
+  if (!host) return;
+
+  const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+  if (!candidates.length) {
+    host.innerHTML = `<div class="p3-empty">
+      빈틈 후보가 없습니다. ATC level3 또는 최소 품목 수를 조정하거나,
+      타겟 INN 을 다른 철자로 시도해 보세요.
+    </div>`;
+    host.style.display = 'block';
+    return;
+  }
+
+  const rows = candidates.map((c, idx) => {
+    const agent   = String(c.agent_name || c.normalized_name || '?');
+    const atc     = String(c.atc_level3 || '-');
+    const inAtc   = Number(c.product_count_in_atc || 0);
+    const tot     = Number(c.total_products || 0);
+    const strg    = Number(c.portfolio_strength || 0);
+    const miss    = !!c.missing_ingredient;
+    const pitch   = String(c.sales_pitch || '');
+    const samples = Array.isArray(c.sample_trade_names) ? c.sample_trade_names.slice(0, 5) : [];
+    const strgCls = _p3WSStrengthClass(strg);
+    const missBadge = miss
+      ? `<span class="p3-ws-badge missing">🎯 타겟 미취급</span>`
+      : `<span class="p3-ws-badge carrying">이미 취급 중</span>`;
+
+    // Phase 4: Tender Power
+    const tp = c.tender_power || null;
+    const tpHtml = tp ? _p3WSRenderTenderPower(tp) : '';
+
+    const samplesHtml = samples.length
+      ? `<div class="p3-ws-samples">
+           ${samples.map(s => `<span class="p3-ws-sample">${_escHtml(String(s))}</span>`).join('')}
+         </div>`
+      : '';
+
+    return `
+      <article class="p3-ws-item">
+        <div class="p3-ws-item-head">
+          <div class="p3-ws-rank">#${idx + 1}</div>
+          <div class="p3-ws-item-main">
+            <div class="p3-ws-item-agent">${_escHtml(agent)}</div>
+            <div class="p3-ws-item-meta">
+              <span>ATC ${_escHtml(atc)}</span>
+              <span>·</span>
+              <span>치료군 ${inAtc}품목</span>
+              <span>·</span>
+              <span>전체 ${tot}품목</span>
+            </div>
+          </div>
+          <div class="p3-ws-strength ${strgCls}">
+            <div class="p3-ws-strength-val">${strg.toFixed(1)}</div>
+            <div class="p3-ws-strength-lbl">strength</div>
+          </div>
+          ${missBadge}
+        </div>
+        ${tpHtml}
+        <div class="p3-ws-pitch">💡 ${_escHtml(pitch)}</div>
+        ${samplesHtml}
+      </article>
+    `;
+  }).join('');
+
+  host.innerHTML = rows;
+  host.style.display = 'block';
+}
+
+async function runP3WhiteSpace() {
+  _p3WSHideError();
+
+  const innEl = document.getElementById('p3-ws-inn');
+  const atcEl = document.getElementById('p3-ws-atc');
+  const minEl = document.getElementById('p3-ws-min');
+
+  const targetInn = innEl && innEl.value ? String(innEl.value).trim() : '';
+  const targetAtc = atcEl && atcEl.value ? String(atcEl.value).trim().toUpperCase() : '';
+  const minProd   = minEl && minEl.value ? Number(minEl.value) : 3;
+
+  if (!targetInn && !targetAtc) {
+    _p3WSShowError('타겟 INN 또는 ATC4 중 하나는 입력하세요.');
+    return;
+  }
+  if (Number.isNaN(minProd) || minProd < 1) {
+    _p3WSShowError('최소 품목 수는 1 이상의 숫자여야 합니다.');
+    return;
+  }
+
+  _p3WSSetLoading(true);
+
+  try {
+    const res = await fetch('/api/p3/white-space', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_inn: targetInn,
+        target_atc_level3: targetAtc || null,
+        min_atc_products: minProd,
+        top_n: 20,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      const msg = data.error || data.detail || `요청 실패 (${res.status})`;
+      _p3WSShowError(msg);
+      const sum = document.getElementById('p3-ws-summary');
+      const rst = document.getElementById('p3-ws-results');
+      if (sum) sum.style.display = 'none';
+      if (rst) rst.style.display = 'none';
+      return;
+    }
+
+    _p3WSRenderSummary(data);
+    _p3WSRenderResults(data);
+  } catch (e) {
+    console.warn('P3 white-space 요청 실패:', e);
+    _p3WSShowError('네트워크 오류 — 잠시 후 다시 시도해 주세요.');
+  } finally {
+    _p3WSSetLoading(false);
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   §12c. Phase 5 — 경쟁사 유통 에이전트 역추적
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function _cmShowStatus(msg, cls) {
+  const el = document.getElementById('cm-status');
+  if (!el) return;
+  el.textContent = String(msg || '');
+  el.className = 'cm-status' + (cls ? ' ' + cls : '');
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function _cmRenderSummary(data) {
+  const host = document.getElementById('cm-summary');
+  if (!host) return;
+  const total = Number(data.total_agents || 0);
+  const brands = Number(data.total_brands || 0);
+  const shown = (data.agents || []).length;
+  const scanned = Number(data.products_scanned || 0);
+  const matched = Number(data.products_matched || 0);
+  const tenderN = Number(data.tender_records_used || 0);
+  const f = data.filters || {};
+  const atc = f.target_atc_l3 || '-';
+  const tokens = Array.isArray(f.inn_tokens) ? f.inn_tokens.join(', ') : '';
+
+  host.innerHTML = `
+    <div class="cm-summary-row">
+      <div class="cm-stat"><div class="cm-stat-lbl">경쟁 에이전트</div><div class="cm-stat-val">${total}</div></div>
+      <div class="cm-stat"><div class="cm-stat-lbl">경쟁 브랜드</div><div class="cm-stat-val">${brands}</div></div>
+      <div class="cm-stat"><div class="cm-stat-lbl">표시 중</div><div class="cm-stat-val accent">${shown}</div></div>
+      <div class="cm-stat"><div class="cm-stat-lbl">ATC L3</div><div class="cm-stat-val">${_escHtml(atc)}</div></div>
+      <div class="cm-stat"><div class="cm-stat-lbl">매칭/스캔</div><div class="cm-stat-val">${matched}/${scanned}</div></div>
+      ${tenderN ? `<div class="cm-stat"><div class="cm-stat-lbl">Tender 실적</div><div class="cm-stat-val">${tenderN}건</div></div>` : ''}
+    </div>
+    ${tokens ? `<div class="cm-filter-note">성분 토큰: ${_escHtml(tokens)}</div>` : ''}
+  `;
+  host.style.display = 'block';
+}
+
+function _cmShareClass(share) {
+  const s = Number(share) || 0;
+  if (s >= 0.30) return 'top';
+  if (s >= 0.15) return 'mid';
+  return 'low';
+}
+
+function _cmRenderList(data) {
+  const host = document.getElementById('cm-list');
+  if (!host) return;
+
+  const agents = Array.isArray(data.agents) ? data.agents : [];
+  if (!agents.length) {
+    host.innerHTML = `<div class="cm-empty">경쟁 브랜드 매칭이 없습니다. 성분/ATC 필터를 조정해 보세요.</div>`;
+    host.style.display = 'block';
+    return;
+  }
+
+  const items = agents.map((a, idx) => {
+    const name = String(a.agent_name || a.normalized_name || '?');
+    const brands = Array.isArray(a.competitor_brands) ? a.competitor_brands : [];
+    const brandCount = Number(a.brand_count || brands.length || 0);
+    const share = Number(a.market_share_est || 0);
+    const sharePct = (share * 100).toFixed(1);
+    const tenderN = Number(a.tender_count || 0);
+    const tenderM = Number(a.tender_total_mn_sar || 0);
+    const avg = a.avg_price_sar != null ? Number(a.avg_price_sar).toFixed(1) + ' SAR' : '—';
+    const range = (a.min_price_sar != null && a.max_price_sar != null)
+      ? `${Number(a.min_price_sar).toFixed(1)}–${Number(a.max_price_sar).toFixed(1)}`
+      : '';
+    const shareCls = _cmShareClass(share);
+
+    const brandChips = brands.slice(0, 8).map(b => {
+      const bn = String(b.trade_name || '?');
+      const price = b.price_sar != null ? ` · ${Number(b.price_sar).toFixed(1)}` : '';
+      return `<span class="cm-brand-chip">${_escHtml(bn)}${_escHtml(price)}</span>`;
+    }).join('');
+    const moreChip = brands.length > 8 ? `<span class="cm-brand-more">+${brands.length - 8}</span>` : '';
+
+    const tenderStr = tenderN > 0
+      ? `<span class="cm-tender-chip">📊 Tender ${tenderN}건 · ${tenderM.toFixed(1)}M SAR</span>`
+      : '';
+
+    return `
+      <article class="cm-item ${shareCls}">
+        <div class="cm-item-head">
+          <div class="cm-rank">#${idx + 1}</div>
+          <div class="cm-item-main">
+            <div class="cm-item-agent">${_escHtml(name)}</div>
+            <div class="cm-item-meta">
+              <span>${brandCount}개 브랜드</span>
+              <span>·</span>
+              <span>평균가 ${_escHtml(avg)}${range ? ` (range ${_escHtml(range)})` : ''}</span>
+              ${tenderStr ? '· ' + tenderStr : ''}
+            </div>
+          </div>
+          <div class="cm-share">
+            <div class="cm-share-bar"><div class="cm-share-fill" style="width:${Math.min(100, share * 100).toFixed(1)}%"></div></div>
+            <div class="cm-share-val">${sharePct}%</div>
+          </div>
+        </div>
+        <div class="cm-brands">${brandChips}${moreChip}</div>
+      </article>
+    `;
+  }).join('');
+
+  host.innerHTML = items;
+  host.style.display = 'block';
+}
+
+async function loadCompetitorMap(opts) {
+  const card = document.getElementById('competitor-map-card');
+  if (!card) return;
+
+  const body = {
+    product_key: opts?.product_key || null,
+    trade_name: opts?.trade_name || null,
+    target_inn: opts?.target_inn || null,
+    target_atc_level3: opts?.target_atc_level3 || null,
+    include_tender_power: true,
+    top_n: 15,
+  };
+
+  // 최소 1개 필터라도 있어야 호출
+  if (!body.product_key && !body.trade_name && !body.target_inn) {
+    return;
+  }
+
+  card.style.display = 'block';
+  _cmShowStatus('경쟁사 유통 구도 분석 중…', 'loading');
+  const sum = document.getElementById('cm-summary');
+  const lst = document.getElementById('cm-list');
+  if (sum) sum.style.display = 'none';
+  if (lst) lst.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/p1/competitor-map', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      _cmShowStatus(data.error || `경쟁사 맵 로드 실패 (${res.status})`, 'err');
+      return;
+    }
+    if (Array.isArray(data.notes) && data.notes.length) {
+      _cmShowStatus(data.notes.join(' · '), 'info');
+    } else {
+      _cmShowStatus('', '');
+    }
+    _cmRenderSummary(data);
+    _cmRenderList(data);
+  } catch (e) {
+    console.warn('competitor-map 요청 실패:', e);
+    _cmShowStatus('네트워크 오류 — 잠시 후 다시 시도해 주세요.', 'err');
   }
 }
 

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import math
 import re
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("frontend.fob_private")
+
+# assets/snippets 모듈(inn_normalizer, outlier_detector)을 lazy import 할 수 있도록
+# sys.path 에 추가. frontend/server.py 가 이미 추가해두지만, 단독 실행 경로에서도 안전하게.
+_SNIPPETS_DIR = Path(__file__).resolve().parent.parent / "assets" / "snippets"
+if _SNIPPETS_DIR.exists() and str(_SNIPPETS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SNIPPETS_DIR))
 
 SAR_PER_USD = 3.75
 
@@ -260,6 +269,72 @@ def _dedupe_price_samples(raw_items: list[dict]) -> list[dict]:
     return deduped
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# 가격 출처 tier 분류 (Cloudflare 편향 투명성 — Phase 2)
+#
+# tier 1 = public (SFDA 등록 DB, 공공 가격 공시)
+# tier 2 = procurement (NUPCO/Etimad 조달 입찰)
+# tier 3 = retail (Nahdi/Dawaa/Whites/Noon 등 민간 소매)
+# tier 0 = self/estimated (자기 제품 가격 or Claude 추정)
+# ─────────────────────────────────────────────────────────────────────────
+
+_SOURCE_TIER_MAP: dict[str, tuple[int, str]] = {
+    # public (SFDA)
+    "sfda": (1, "public"),
+    "sfda_api": (1, "public"),
+    "sfda_web": (1, "public"),
+    "sfda_drugs_list_html": (1, "public"),
+    "sfda_companies": (1, "public"),
+    # procurement
+    "nupco": (2, "procurement"),
+    "nupco_tenders": (2, "procurement"),
+    "etimad": (2, "procurement"),
+    "etimad_api": (2, "procurement"),
+    # retail / e-commerce
+    "nahdi": (3, "retail"),
+    "nahdi_web": (3, "retail"),
+    "al_dawaa": (3, "retail"),
+    "al_dawaa_web": (3, "retail"),
+    "dawaa": (3, "retail"),
+    "whites": (3, "retail"),
+    "whites_web": (3, "retail"),
+    "noon": (3, "retail"),
+    "noon_saudi": (3, "retail"),
+    "tamer": (3, "retail"),
+    "tamer_group": (3, "retail"),
+    # self / estimated
+    "report_data": (0, "self"),
+    "selected": (0, "self"),
+    "estimated": (0, "estimated"),
+    "same_ingredient": (0, "unknown"),
+    "competitors": (0, "unknown"),
+    "크롤링": (0, "unknown"),
+    "동일성분": (0, "unknown"),
+    "유사제형": (0, "unknown"),
+}
+
+
+def _classify_source(source_str: str) -> tuple[int, str]:
+    """원본 source 문자열을 (tier, origin) 튜플로 분류.
+
+    완전 일치가 없으면 부분 일치 fuzzy fallback.
+    """
+    key = (source_str or "").strip().lower()
+    if key in _SOURCE_TIER_MAP:
+        return _SOURCE_TIER_MAP[key]
+    if "sfda" in key:
+        return (1, "public")
+    if "nupco" in key or "etimad" in key or "tender" in key or "조달" in key:
+        return (2, "procurement")
+    if any(tok in key for tok in ("nahdi", "dawaa", "whites", "noon", "tamer", "retail", "pharmacy", "소매")):
+        return (3, "retail")
+    if "report" in key or "selected" in key:
+        return (0, "self")
+    if "estimate" in key or "추정" in key:
+        return (0, "estimated")
+    return (0, "unknown")
+
+
 def _collect_price_pool(report_data: dict) -> list[dict]:
     raw_items: list[dict] = []
 
@@ -302,16 +377,148 @@ def _collect_price_pool(report_data: dict) -> list[dict]:
                 "type":       "estimated",
             })
 
+    # ── tier/origin 메타데이터 부여 (Phase 2-1) ──
+    for item in deduped:
+        tier, origin = _classify_source(item.get("source", ""))
+        item["tier"] = tier
+        item["origin"] = origin
+
     return deduped
 
 
+def _analyze_pool_diversity(price_pool: list[dict]) -> dict:
+    """price_pool 의 출처 다양성을 분석하여 투명성 경고를 생성.
+
+    반환 구조:
+        {
+          "sources": [{"source": str, "tier": int, "origin": str, "count": int}, ...],
+          "tier_counts": {"public": N, "procurement": N, "retail": N, "self": N, ...},
+          "warnings": [str, ...],
+        }
+    """
+    from collections import Counter
+
+    source_keys = Counter()
+    origin_counter = Counter()
+    src_to_meta: dict[str, tuple[int, str]] = {}
+
+    for item in price_pool:
+        src = (item.get("source") or "").strip() or "unknown"
+        tier = int(item.get("tier", 0))
+        origin = str(item.get("origin") or "unknown")
+        source_keys[src] += 1
+        origin_counter[origin] += 1
+        src_to_meta[src] = (tier, origin)
+
+    sources_list = [
+        {
+            "source": src,
+            "tier": src_to_meta[src][0],
+            "origin": src_to_meta[src][1],
+            "count": cnt,
+        }
+        for src, cnt in sorted(source_keys.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+    retail_sources = {
+        src for src, (_t, origin) in src_to_meta.items() if origin == "retail"
+    }
+    public_count = origin_counter.get("public", 0)
+    procurement_count = origin_counter.get("procurement", 0)
+    retail_count = origin_counter.get("retail", 0)
+    self_count = origin_counter.get("self", 0) + origin_counter.get("estimated", 0)
+
+    warnings_list: list[str] = []
+
+    if retail_count == 0 and (public_count + procurement_count) > 0:
+        warnings_list.append(
+            "⚠️ 소매 가격 소스 전체 누락(Cloudflare 차단 가능성) — "
+            "FOB 가 실제 시장가 대비 상향 편향 우려"
+        )
+    elif retail_count > 0 and len(retail_sources) == 1:
+        only_chain = next(iter(retail_sources))
+        warnings_list.append(
+            f"⚠️ 소매 표본이 단일 체인({only_chain})뿐 — 대표성 제한, "
+            "다른 체인 대비 가격 편차 반영 불가"
+        )
+
+    if retail_count == 0 and procurement_count == 0 and public_count > 0 and self_count == 0:
+        warnings_list.append(
+            "⚠️ 공공 SFDA 단가만 존재 — 민간 마진 구조(약국 + 도매) 반영 불가"
+        )
+
+    if retail_count == 0 and public_count == 0 and procurement_count > 0:
+        warnings_list.append(
+            "⚠️ 공공조달 단가 only — 민간 시장 소매 분포와 다를 수 있음"
+        )
+
+    if self_count > 0 and (retail_count + public_count + procurement_count) == 0:
+        warnings_list.append(
+            "⚠️ 자체/추정 가격만 존재 — 외부 시장 검증 불가. 결과를 참고용으로만 사용"
+        )
+
+    return {
+        "sources": sources_list,
+        "tier_counts": {
+            "public": public_count,
+            "procurement": procurement_count,
+            "retail": retail_count,
+            "self_or_estimated": self_count,
+            "unknown": origin_counter.get("unknown", 0),
+        },
+        "retail_chain_count": len(retail_sources),
+        "warnings": warnings_list,
+    }
+
+
+def _scan_outliers_safe(values: list[float]) -> list[float]:
+    """outlier_detector.scan_group 래퍼. 로드 실패/ n<5 등에서 조용히 빈 리스트.
+
+    K 통계량(IQR 기반 Relative Range) 으로 반복 제거되는 가격들을 반환.
+    논문 임계값(alpha=0.05) 기준, 최대 3회 반복으로 제한.
+    """
+    if not values or len(values) < 5:
+        return []
+    try:
+        from outlier_detector import scan_group  # type: ignore
+
+        removed = scan_group(list(values), alpha=0.05, max_iter=3)
+        return [float(price) for (price, _result) in removed]
+    except Exception as exc:
+        logger.debug("outlier scan_group 건너뜀: %s", exc)
+        return []
+
+
 def _build_competitor_stats(price_pool: list[dict]) -> dict:
-    values = sorted(item["price"] for item in price_pool)
-    if not values:
+    values_all = sorted(item["price"] for item in price_pool)
+    if not values_all:
         raise ValueError(
             "가격 분포 역산에 사용할 SAR 가격 샘플을 찾지 못했습니다. "
             "1공정 보고서에 동일 성분 가격·추정가가 포함되어 있는지 확인하세요."
         )
+
+    # ── K 통계량 기반 이상치 필터 (n>=5 일 때만 동작) ──
+    outliers_removed = _scan_outliers_safe(values_all)
+    if outliers_removed:
+        # 동일 값 다중 제거 방지 위해 각 outlier 값당 1건씩만 빼기
+        remaining_to_remove = list(outliers_removed)
+        filtered: list[float] = []
+        for v in values_all:
+            matched_idx = None
+            for idx, rv in enumerate(remaining_to_remove):
+                if math.isclose(v, rv, rel_tol=1e-6, abs_tol=1e-6):
+                    matched_idx = idx
+                    break
+            if matched_idx is not None:
+                remaining_to_remove.pop(matched_idx)
+            else:
+                filtered.append(v)
+        # 전부 outlier 로 간주되면 원본 유지 (극단 안전장치)
+        values = filtered if filtered else values_all
+        if not filtered:
+            outliers_removed = []
+    else:
+        values = values_all
 
     count = len(values)
     if count >= 3:
@@ -328,6 +535,14 @@ def _build_competitor_stats(price_pool: list[dict]) -> dict:
         p25 = median = p75 = values[0]
         warning = "표본 3개 미만 — 세 시나리오 모두 동일 retail 기준을 사용합니다."
 
+    extra_warnings: list[str] = []
+    if outliers_removed:
+        formatted = ", ".join(f"{v:.2f}" for v in outliers_removed)
+        extra_warnings.append(
+            f"⚠️ 이상치 {len(outliers_removed)}건 제외(K 통계량 기준): [{formatted}] SAR — "
+            "용량 파싱 오류 또는 통화 혼입 가능성"
+        )
+
     return {
         "count": count,
         "min": _round_money(values[0]),
@@ -337,6 +552,10 @@ def _build_competitor_stats(price_pool: list[dict]) -> dict:
         "median": _round_money(median),
         "p75": _round_money(p75),
         "warning": warning,
+        "extra_warnings": extra_warnings,
+        "outliers_removed": [_round_money(v) for v in outliers_removed],
+        "sample_count_before_filter": len(values_all),
+        "sample_count_after_filter": count,
     }
 
 
@@ -377,43 +596,258 @@ def _heuristic_classification(product: dict) -> dict:
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# 하드룰 분류기 (LLM 환각 방어 1차선)
+#
+# 설계 원칙:
+#   1. 브랜드 → INN 매핑(inn_normalizer.BRAND_TO_INN) → INN 확보
+#   2. INN → ATC 코드(inn_normalizer.normalize_to_inn) → 치료계열 확보
+#   3. ATC 접두어가 biologic 계열이면 biosimilar
+#   4. INN 이 "사우디 상위 제네릭" 목록에 있으면 generic
+#   5. 위 규칙 모두 불발이면 None 을 반환해 LLM 에게 양보
+# ═════════════════════════════════════════════════════════════════════════
+
+_inn_normalizer_instance: Any = None
+_inn_normalizer_failed: bool = False
+_brand_to_inn_cache: dict[str, str] | None = None
+
+# ATC 접두어 기반 biologic/biosimilar 판정 규칙
+# (WHO ATC 분류 중 재조합단백·단클론항체·생물학적 제제 계열)
+_BIOLOGIC_ATC_PREFIXES: tuple[str, ...] = (
+    "A10A",   # 인슐린 전체 (glargine, lispro, aspart ...)
+    "B01AB",  # 헤파린·저분자량 헤파린 (enoxaparin ...)
+    "H01",    # 뇌하수체/시상하부 호르몬 (recombinant)
+    "J06B",   # 면역글로불린
+    "L01X",   # 항암 단클론항체·표적치료제 (trastuzumab, bevacizumab ...)
+    "L03A",   # 면역자극제 (interferon ...)
+    "L04AB",  # TNF-α 억제제 (adalimumab, infliximab ...)
+    "L04AC",  # 인터루킨 억제제
+)
+
+# 사우디 시장에서 동일 INN 으로 다수 제약사가 판매 중인(= 사실상 제네릭) 성분.
+# 이 목록에 있으면 innovative cap 대신 generic cap 적용.
+_KNOWN_WIDELY_GENERIC_INNS: frozenset[str] = frozenset({
+    "paracetamol", "acetaminophen", "ibuprofen", "amoxicillin",
+    "amoxicillin trihydrate", "metformin", "metformin hydrochloride",
+    "atorvastatin", "atorvastatin calcium", "omeprazole", "esomeprazole",
+    "amlodipine", "amlodipine besylate", "losartan", "losartan potassium",
+    "clopidogrel", "acetylsalicylic acid", "ciprofloxacin", "azithromycin",
+    "doxycycline", "prednisolone", "prednisone", "dexamethasone",
+    "levothyroxine", "warfarin", "pantoprazole", "lansoprazole",
+    "rosuvastatin", "simvastatin", "lisinopril", "enalapril", "ramipril",
+    "valsartan", "telmisartan", "bisoprolol", "carvedilol", "furosemide",
+    "hydrochlorothiazide", "spironolactone", "gabapentin", "pregabalin",
+    "tramadol", "diclofenac", "celecoxib", "montelukast", "salbutamol",
+    "fluticasone",
+})
+
+
+def _load_inn_assets() -> tuple[Any, dict[str, str]]:
+    """inn_normalizer 싱글턴과 BRAND_TO_INN 매핑을 지연 로드."""
+    global _inn_normalizer_instance, _inn_normalizer_failed, _brand_to_inn_cache
+    if _inn_normalizer_failed:
+        return None, _brand_to_inn_cache or {}
+    if _inn_normalizer_instance is not None:
+        return _inn_normalizer_instance, _brand_to_inn_cache or {}
+    try:
+        from inn_normalizer import INNNormalizer, BRAND_TO_INN  # type: ignore
+
+        normalizer = INNNormalizer()
+        normalizer.load_reference()
+        _inn_normalizer_instance = normalizer
+        _brand_to_inn_cache = dict(BRAND_TO_INN)
+        return normalizer, _brand_to_inn_cache
+    except Exception as exc:
+        logger.warning("INN 정규화기 로드 실패 — 하드룰 분류 건너뜀: %s", exc)
+        _inn_normalizer_failed = True
+        _brand_to_inn_cache = {}
+        return None, _brand_to_inn_cache
+
+
+def _is_biologic_by_atc(atc_code: Optional[str]) -> bool:
+    """ATC 코드 접두어로 biologic 여부 판정."""
+    if not atc_code:
+        return False
+    code = str(atc_code).upper().strip()
+    return any(code.startswith(prefix) for prefix in _BIOLOGIC_ATC_PREFIXES)
+
+
+def _hard_rule_classify(product: dict) -> Optional[dict]:
+    """브랜드/INN/ATC 하드룰로 product_kind 결정.
+
+    반환:
+        {
+          "product_kind": "innovative" | "generic" | "biosimilar",
+          "confidence": 0.0~1.0,
+          "inn_name": str | None,
+          "atc_code": str | None,
+          "rule_applied": str,
+          "rationale": str,
+        }
+        또는 None (규칙 불발)
+    """
+    inn_input = str(product.get("inn") or "").strip()
+    trade_name = str(product.get("trade_name") or "").strip()
+
+    normalizer, brand_map = _load_inn_assets()
+
+    inn_resolved: Optional[str] = None
+    atc_code: Optional[str] = None
+    chain: list[str] = []
+
+    # 1. 브랜드 매핑 (trade_name 첫 단어)
+    if trade_name and brand_map:
+        brand_key = trade_name.lower().split()[0] if trade_name.strip() else ""
+        if brand_key in brand_map:
+            inn_resolved = brand_map[brand_key]
+            chain.append(f"brand({brand_key}→{inn_resolved})")
+
+    # 2. INNNormalizer 로 INN + ATC 확보 (INN 필드 우선, fallback trade_name)
+    if normalizer is not None:
+        source = inn_input or trade_name
+        if source:
+            try:
+                result = normalizer.normalize(source)
+                if getattr(result, "success", False):
+                    if not inn_resolved and getattr(result, "inn_name", None):
+                        inn_resolved = result.inn_name
+                    candidate_atc = getattr(result, "inn_id", None)
+                    if candidate_atc:
+                        atc_code = str(candidate_atc)
+                        chain.append(f"inn({source}→{inn_resolved}/{atc_code})")
+            except Exception as exc:
+                logger.debug("normalize() 실패: %s (%s)", source, exc)
+
+    if not inn_resolved and not atc_code:
+        return None
+
+    inn_lower = (inn_resolved or "").lower().strip()
+
+    # 3. biologic → biosimilar (ATC 접두어 기반)
+    if _is_biologic_by_atc(atc_code):
+        return {
+            "product_kind": "biosimilar",
+            "confidence": 0.85,
+            "inn_name": inn_resolved,
+            "atc_code": atc_code,
+            "rule_applied": "atc_biologic",
+            "rationale": (
+                f"ATC={atc_code} (생물학적 제제 계열) → biosimilar cap 적용. "
+                f"해결 경로: {' → '.join(chain) if chain else 'direct'}"
+            ),
+        }
+
+    # 4. 광범위 제네릭 목록에 포함
+    if inn_lower and inn_lower in _KNOWN_WIDELY_GENERIC_INNS:
+        return {
+            "product_kind": "generic",
+            "confidence": 0.90,
+            "inn_name": inn_resolved,
+            "atc_code": atc_code,
+            "rule_applied": "widely_generic",
+            "rationale": (
+                f"INN={inn_resolved} 은 사우디에서 복수 제약사가 생산 중인 제네릭 → generic cap. "
+                f"해결 경로: {' → '.join(chain) if chain else 'direct'}"
+            ),
+        }
+
+    # 5. ATC 만 확보됐고 biologic 도 widely-generic 도 아님 — 중간 신뢰도 generic
+    if atc_code:
+        return {
+            "product_kind": "generic",
+            "confidence": 0.72,
+            "inn_name": inn_resolved,
+            "atc_code": atc_code,
+            "rule_applied": "inn_match",
+            "rationale": (
+                f"INN/ATC 매칭({inn_resolved}/{atc_code}) 확인되나 광범위 제네릭 목록 외. "
+                f"보수적으로 generic 분류."
+            ),
+        }
+
+    # 6. INN 만 알고 ATC 없음 — 하드룰 판정 보류
+    return None
+
+
 def _classify_private_context(product: dict, price_pool: list[dict], llm: Any | None) -> dict:
     classification = _heuristic_classification(product)
     warnings: list[str] = []
 
+    # ── Step 1: 하드룰 선판정 (LLM 환각 방어 1차선) ──
+    hard = _hard_rule_classify(product)
+    if hard is not None:
+        classification["product_kind"] = hard["product_kind"]
+        classification["rationale"] = hard["rationale"]
+        classification["hard_rule"] = {
+            "rule_applied": hard["rule_applied"],
+            "inn_name": hard.get("inn_name"),
+            "atc_code": hard.get("atc_code"),
+            "confidence": hard["confidence"],
+        }
+
+    # ── Step 2: LLM 이 없으면 하드룰(있으면) 또는 휴리스틱으로 종료 ──
     if llm is None:
-        warnings.append("Claude 미설정 — 기본 분류 규칙을 사용했습니다.")
+        if hard is None:
+            warnings.append("Claude 미설정 — 하드룰도 불발, 기본 분류 규칙을 사용했습니다.")
+        else:
+            warnings.append(
+                f"Claude 미설정 — 하드룰({hard['rule_applied']})로만 분류: {hard['product_kind']}."
+            )
         classification["warnings"] = warnings
         return classification
 
-    prompt = f"""당신은 SFDA 민간 의약품 가격 규칙 전문가입니다.
-다음 정보를 바탕으로 민간 시장 FOB 역산 파이프라인에서 사용할 분류값만 JSON으로 반환하세요.
+    # ── Step 3: LLM 보조 — 세부 파라미터 산출 + 하드룰 교차검증 ──
+    # 프롬프트 injection 방어: 모든 사용자 입력을 json.dumps 로 감싸 braces/따옴표 escape
+    safe_trade = json.dumps(product.get("trade_name") or "", ensure_ascii=False)
+    safe_inn = json.dumps(product.get("inn") or "", ensure_ascii=False)
+    safe_form = json.dumps(product.get("dosage_form") or "", ensure_ascii=False)
+    safe_strength = json.dumps(product.get("strength") or "", ensure_ascii=False)
+    safe_hs = json.dumps(product.get("hs_code") or "", ensure_ascii=False)
+    safe_samples = json.dumps(
+        [round(x["price"], 2) for x in price_pool[:12]], ensure_ascii=False
+    )
 
-품목명: {product.get("trade_name") or ""}
-INN: {product.get("inn") or ""}
-제형: {product.get("dosage_form") or ""}
-함량: {product.get("strength") or ""}
-HS 코드: {product.get("hs_code") or ""}
-가격 샘플(SAR): {[round(x["price"], 2) for x in price_pool[:12]]}
+    hard_rule_hint = ""
+    if hard is not None:
+        hard_rule_hint = (
+            "\n[하드룰 사전 판정] "
+            f"product_kind={hard['product_kind']} "
+            f"(신뢰도 {hard['confidence']:.2f}, 규칙={hard['rule_applied']}, "
+            f"INN={hard.get('inn_name') or 'n/a'}, ATC={hard.get('atc_code') or 'n/a'}). "
+            "이 판정을 존중하되 dosage_ratio / premium_factor / freight 를 산출하세요. "
+            "판정 변경 사유가 있으면 rationale 에 명시하세요."
+        )
 
-응답 JSON 스키마:
-{{
-  "product_kind": "innovative" | "generic" | "biosimilar",
-  "is_combination": true | false,
-  "is_extended_release": true | false,
-  "premium_factor": 0.0,
-  "dosage_ratio": 1.0,
-  "freight_base_sar_per_unit": 0.0,
-  "rationale": "한국어 2문장 이내"
-}}
-
-원칙:
-- 확실하지 않으면 generic
-- 조합제/서방형이 명확하지 않으면 false
-- premium_factor는 0.0~0.20
-- dosage_ratio는 1.0 이상
-- freight_base_sar_per_unit는 고형제 2~5, 액상 4~8, 주사제 8~15 범위 권장
-JSON만 반환하세요."""
+    prompt = (
+        "당신은 SFDA 민간 의약품 가격 규칙 전문가입니다.\n"
+        "다음 정보를 바탕으로 민간 시장 FOB 역산 파이프라인에서 사용할 분류값만 JSON으로 반환하세요.\n\n"
+        f"품목명: {safe_trade}\n"
+        f"INN: {safe_inn}\n"
+        f"제형: {safe_form}\n"
+        f"함량: {safe_strength}\n"
+        f"HS 코드: {safe_hs}\n"
+        f"가격 샘플(SAR): {safe_samples}"
+        f"{hard_rule_hint}\n\n"
+        "응답 JSON 스키마:\n"
+        "{\n"
+        '  "product_kind": "innovative" | "generic" | "biosimilar",\n'
+        '  "is_combination": true | false,\n'
+        '  "is_extended_release": true | false,\n'
+        '  "premium_factor": 0.0,\n'
+        '  "dosage_ratio": 1.0,\n'
+        '  "freight_base_sar_per_unit": 0.0,\n'
+        '  "confidence": 0.0,\n'
+        '  "rationale": "한국어 2문장 이내"\n'
+        "}\n\n"
+        "원칙:\n"
+        "- 분류 확신 없으면 generic 대신 innovative 로 (FOB 과소산출 편향 방지)\n"
+        "- 조합제/서방형이 명확하지 않으면 false\n"
+        "- premium_factor 는 0.0~0.20\n"
+        "- dosage_ratio 는 1.0 이상\n"
+        "- freight_base_sar_per_unit 는 고형제 2~5, 액상 4~8, 주사제 8~15 범위 권장\n"
+        "- confidence 는 0.0~1.0 — 분류 자체에 대한 확신도\n"
+        "JSON만 반환하세요."
+    )
 
     try:
         from llm_client import MODEL_HAIKU
@@ -421,25 +855,69 @@ JSON만 반환하세요."""
         response = llm.ask(prompt, model=MODEL_HAIKU, max_tokens=800)
         parsed = response.parse_json()
 
-        product_kind = str(parsed.get("product_kind") or classification["product_kind"]).strip().lower()
-        if product_kind not in {"innovative", "generic", "biosimilar"}:
-            product_kind = classification["product_kind"]
+        llm_kind = str(parsed.get("product_kind") or classification["product_kind"]).strip().lower()
+        if llm_kind not in {"innovative", "generic", "biosimilar"}:
+            llm_kind = classification["product_kind"]
+
+        try:
+            llm_confidence = float(parsed.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            llm_confidence = 0.0
+        llm_confidence = _clamp(llm_confidence, 0.0, 1.0)
+
+        # ── 하드룰 vs LLM 충돌 조정 ──
+        if hard is not None and llm_kind != hard["product_kind"]:
+            # LLM 이 매우 강하고(≥0.80) 하드룰은 약할 때(<0.85)만 LLM 채택
+            if llm_confidence >= 0.80 and hard["confidence"] < 0.85:
+                warnings.append(
+                    f"하드룰({hard['product_kind']}) ↔ LLM({llm_kind}) 충돌 — "
+                    f"LLM 신뢰도 {llm_confidence:.2f}로 LLM 채택"
+                )
+                classification["product_kind"] = llm_kind
+            else:
+                warnings.append(
+                    f"하드룰({hard['product_kind']}) ↔ LLM({llm_kind}) 충돌 — "
+                    f"하드룰 유지 (LLM 신뢰도 {llm_confidence:.2f} 불충분)"
+                )
+                # product_kind 는 하드룰 값 그대로 둠
+        elif hard is None:
+            classification["product_kind"] = llm_kind
+
+        # ── 저신뢰도 LLM → manual review + 보수적 fallback ──
+        if llm_confidence < 0.70:
+            warnings.append(
+                f"manual_review_required: LLM 분류 신뢰도 {llm_confidence:.2f} < 0.70"
+            )
+            if hard is None:
+                # 하드룰도 없고 LLM도 모호 → "generic" 기본값 대신 innovative 로 과소산출 방지
+                classification["product_kind"] = "innovative"
+                warnings.append(
+                    "하드룰 부재 + LLM 저신뢰 — 과소산출 방지 위해 보수적 innovative 유지"
+                )
 
         premium_factor = _clamp(float(parsed.get("premium_factor") or 0.0), 0.0, COMBO_PREMIUM_MAX)
         dosage_ratio = max(float(parsed.get("dosage_ratio") or 1.0), 1.0)
-        freight_base = max(float(parsed.get("freight_base_sar_per_unit") or classification["freight_base_sar_per_unit"]), 0.0)
+        freight_base = max(
+            float(parsed.get("freight_base_sar_per_unit") or classification["freight_base_sar_per_unit"]),
+            0.0,
+        )
 
         classification.update(
             {
-                "product_kind": product_kind,
                 "is_combination": bool(parsed.get("is_combination", classification["is_combination"])),
                 "is_extended_release": bool(parsed.get("is_extended_release", classification["is_extended_release"])),
                 "premium_factor": premium_factor,
                 "dosage_ratio": dosage_ratio,
                 "freight_base_sar_per_unit": freight_base,
-                "rationale": str(parsed.get("rationale") or classification["rationale"]).strip(),
+                "llm_confidence": llm_confidence,
             }
         )
+        # rationale: 하드룰이 있으면 하드룰 rationale 우선, LLM rationale 은 추가 설명으로 append
+        llm_rationale = str(parsed.get("rationale") or "").strip()
+        if hard is not None and llm_rationale:
+            classification["rationale"] = f"{hard['rationale']} | LLM: {llm_rationale}"
+        elif llm_rationale:
+            classification["rationale"] = llm_rationale
     except Exception as exc:
         warnings.append(f"Claude 분류 실패 — 기본 규칙으로 계산했습니다. ({exc})")
 
@@ -662,6 +1140,9 @@ def _run_market_fob_pipeline(
     classification = _classify_private_context(product, price_pool, llm)
     scenarios = _build_scenario_configs(competitor_stats, overrides, scenario_defaults)
 
+    # ── Phase 2: 출처 다양성 분석 ──
+    diversity = _analyze_pool_diversity(price_pool)
+
     notes = list(source_notes)
     if market_type == "public":
         notes.append(
@@ -676,6 +1157,12 @@ def _run_market_fob_pipeline(
     warnings = list(classification.get("warnings") or [])
     if competitor_stats.get("warning"):
         warnings.append(competitor_stats["warning"])
+    for extra in competitor_stats.get("extra_warnings") or []:
+        if extra:
+            warnings.append(extra)
+    for dw in diversity.get("warnings") or []:
+        if dw:
+            warnings.append(dw)
     classification["warnings"] = warnings
 
     rates = exchange_rates or {}
@@ -797,8 +1284,14 @@ def _run_market_fob_pipeline(
             "freight_base_sar_per_unit": _round_money(classification["freight_base_sar_per_unit"]),
             "rationale": classification["rationale"],
             "warnings": warnings,
+            "hard_rule": classification.get("hard_rule"),
+            "llm_confidence": classification.get("llm_confidence"),
         },
         "competitor_stats": competitor_stats,
+        "price_pool_sources": diversity.get("sources", []),
+        "price_pool_tier_counts": diversity.get("tier_counts", {}),
+        "price_pool_retail_chains": diversity.get("retail_chain_count", 0),
+        "diversity_warnings": diversity.get("warnings", []),
         "exchange_rates": {
             "sar_krw": _round_money((usd_krw / (1.0 / sar_usd)) if sar_usd else None),
             "usd_krw": _round_money(usd_krw),

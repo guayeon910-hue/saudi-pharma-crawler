@@ -91,6 +91,28 @@ class P3ProspectsRequest(BaseModel):
     strength: Optional[str] = None
 
 
+class P3WhiteSpaceRequest(BaseModel):
+    """Phase 3 빈틈 분석 요청."""
+    target_inn: str
+    target_atc_level3: Optional[str] = None   # 주어지면 inn 보다 우선
+    min_atc_products: int = 3
+    top_n: int = 15
+    product_limit: int = 2000                 # DB fetch 상한 (성능/메모리 보호)
+    include_tender_power: bool = True         # Phase 4: 공공조달 실적 스코어 병합
+
+
+class P1CompetitorMapRequest(BaseModel):
+    """Phase 5: 경쟁사 유통 에이전트 역추적 요청."""
+    product_key: Optional[str] = None         # drug_registry 의 제품 키
+    trade_name: Optional[str] = None          # 직접 지정 시
+    ingredients: Optional[str] = None         # 직접 지정 시 (쉼표 구분 가능)
+    target_inn: Optional[str] = None          # INN 으로 직접 필터
+    target_atc_level3: Optional[str] = None   # ATC L3 필터 (선택)
+    include_tender_power: bool = True         # Tender 실적 결합 여부
+    top_n: int = 15
+    product_limit: int = 1500
+
+
 def _reset_site_states() -> None:
     global _site_states
     _site_states = get_initial_states()
@@ -1871,6 +1893,374 @@ async def api_p3_prospects(req: P3ProspectsRequest):
         return JSONResponse(
             status_code=502,
             content={"ok": False, "error": f"Perplexity 요청 실패: {str(exc)[:160]}"},
+        )
+
+
+@app.post("/api/p3/white-space")
+async def api_p3_white_space(req: P3WhiteSpaceRequest):
+    """Phase 3: 에이전트 × ATC 치료군 빈틈 분석.
+
+    입력 INN 에 해당하는 ATC level3 치료군에서 강한 포트폴리오를 보유하지만
+    해당 INN 은 취급하지 않는 에이전트를 정량 추출.
+    """
+    target_inn = (req.target_inn or "").strip()
+    if not target_inn and not req.target_atc_level3:
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "error": "target_inn 또는 target_atc_level3 중 하나는 필요합니다."},
+        )
+
+    sb = _get_supabase()
+    if not sb:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "Supabase 미설정 — products 테이블 조회 불가."},
+        )
+
+    # products 전체(KSA) 중 agent_or_supplier 가 있는 레코드만 fetch
+    products: list[dict] = []
+    try:
+        resp = (
+            sb.table("products")
+            .select("product_id,trade_name,inn_name,agent_or_supplier,atc_code,source_tier")
+            .eq("country", "SA")
+            .not_.is_("agent_or_supplier", "null")
+            .limit(max(100, min(req.product_limit, 10000)))
+            .execute()
+        )
+        products = resp.data or []
+    except Exception as exc:
+        logger.warning("P3 white-space DB 조회 실패: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"ok": False, "error": f"products 테이블 조회 실패: {str(exc)[:160]}"},
+        )
+
+    if not products:
+        return {
+            "ok": True,
+            "target_inn": target_inn,
+            "target_atc_level3": req.target_atc_level3,
+            "total_agents": 0,
+            "agents_in_atc": 0,
+            "candidates": [],
+            "notes": ["products 테이블에 agent_or_supplier 가 있는 레코드가 없습니다."],
+        }
+
+    try:
+        from analytics.agent_portfolio import analyze_white_space_for_inn
+
+        result = await asyncio.to_thread(
+            analyze_white_space_for_inn,
+            products,
+            target_inn,
+            target_atc_level3=req.target_atc_level3,
+            min_atc_products=int(req.min_atc_products),
+            top_n=int(req.top_n),
+        )
+        result["ok"] = True
+        result["products_scanned"] = len(products)
+    except Exception as exc:
+        logger.exception("P3 white-space 분석 실패")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": f"분석 실패: {str(exc)[:200]}"},
+        )
+
+    # ── Phase 4: Tender Power 병합 (백그라운드 점수, 실패해도 white-space 는 반환) ──
+    if req.include_tender_power and result.get("candidates"):
+        try:
+            from analytics.tender_power import (
+                compute_tender_power_for_agents,
+                contracts_rows_to_records,
+                nupco_awards_rows_to_records,
+                score_band,
+            )
+
+            # contracts 테이블 fetch (Etimad API 낙찰 실적)
+            contracts_rows: list[dict] = []
+            try:
+                c_resp = (
+                    sb.table("contracts")
+                    .select("supplier_name,contract_value,start_date,end_date,category")
+                    .eq("country", "SA")
+                    .not_.is_("supplier_name", "null")
+                    .limit(5000)
+                    .execute()
+                )
+                contracts_rows = c_resp.data or []
+            except Exception as exc:
+                logger.info("P3 tender-power: contracts 테이블 조회 스킵 (%s)", str(exc)[:100])
+
+            # nupco_awards 테이블 fetch (아직 미존재시 조용히 skip)
+            awards_rows: list[dict] = []
+            try:
+                a_resp = (
+                    sb.table("nupco_awards")
+                    .select("winner_name,award_value,award_date,category")
+                    .eq("country", "SA")
+                    .limit(5000)
+                    .execute()
+                )
+                awards_rows = a_resp.data or []
+            except Exception as exc:
+                # nupco_awards 테이블이 아직 없을 수 있음 — 정상 케이스
+                logger.debug("P3 tender-power: nupco_awards 스킵 (%s)", str(exc)[:100])
+
+            if contracts_rows or awards_rows:
+                all_records = (
+                    contracts_rows_to_records(contracts_rows)
+                    + nupco_awards_rows_to_records(awards_rows)
+                )
+                agent_names = [c.get("agent_name", "") for c in result["candidates"]]
+
+                tp_dict = await asyncio.to_thread(
+                    compute_tender_power_for_agents,
+                    agent_names,
+                    all_records,
+                    target_atc_l3=result.get("target_atc_level3"),
+                )
+                meta = tp_dict.pop("__meta__", {})
+
+                # 각 candidate 에 tender_power 필드 merge
+                for cand in result["candidates"]:
+                    name = cand.get("agent_name", "")
+                    tp = tp_dict.get(name) or {
+                        "score": 0.0, "count_last_2y": 0,
+                        "total_value_mn_sar": 0.0,
+                        "has_target_atc_match": False, "sources": {},
+                    }
+                    cand["tender_power"] = {
+                        "score": tp.get("score", 0.0),
+                        "band": score_band(float(tp.get("score") or 0)),
+                        "count_last_2y": tp.get("count_last_2y", 0),
+                        "total_value_mn_sar": tp.get("total_value_mn_sar", 0.0),
+                        "has_target_atc_match": tp.get("has_target_atc_match", False),
+                        "sources": tp.get("sources", {}),
+                    }
+
+                # Tender Power DESC 정렬 (plan 4-3) — missing 우선은 유지
+                result["candidates"].sort(
+                    key=lambda c: (
+                        not c.get("missing_ingredient", False),          # missing=True 먼저
+                        -float(c.get("tender_power", {}).get("score") or 0),  # score 내림차순
+                        -float(c.get("portfolio_strength") or 0),        # tie-break: strength
+                    )
+                )
+
+                result["tender_power_meta"] = {
+                    "contracts_scanned": len(contracts_rows),
+                    "awards_scanned": len(awards_rows),
+                    "unmatched_supplier_count": meta.get("unmatched_supplier_count", 0),
+                    "sort_applied": "tender_power_desc",
+                }
+            else:
+                result["tender_power_meta"] = {
+                    "contracts_scanned": 0,
+                    "awards_scanned": 0,
+                    "note": "공공조달 실적 데이터 없음 — Tender Power 계산 스킵",
+                }
+        except Exception as exc:
+            logger.warning("P3 tender-power 병합 실패: %s", exc)
+            result["tender_power_meta"] = {"error": str(exc)[:160]}
+
+    return result
+
+
+def _derive_competitor_filters(
+    drug: Optional[TargetDrug],
+    req: "P1CompetitorMapRequest",
+) -> dict:
+    """competitor-map 요청 → SFDA fetch 필터 도출.
+
+    우선순위: target_inn > drug.ingredient > req.ingredients > req.trade_name
+    """
+    inn = (req.target_inn or "").strip()
+    ingredients = (req.ingredients or (drug.ingredient if drug else "") or "").strip()
+    trade = (req.trade_name or (drug.trade_name if drug else "") or "").strip()
+
+    # 성분명 token: 쉼표/and/+/공백 기준 분리 후 필터용 키워드 리스트
+    tokens: list[str] = []
+    for raw in [inn, ingredients]:
+        if not raw:
+            continue
+        for t in re.split(r"[,+&/]|\sand\s", raw, flags=re.IGNORECASE):
+            t = t.strip().lower()
+            if t and len(t) >= 3 and t not in tokens:
+                tokens.append(t)
+
+    return {
+        "inn_tokens": tokens[:6],          # 쿼리 안전 상한
+        "trade_name": trade,
+        "target_atc_l3": (req.target_atc_level3 or "").upper().strip(),
+    }
+
+
+def _filter_products_by_inn_tokens(
+    products: list[dict],
+    inn_tokens: list[str],
+    atc_l3: str = "",
+) -> list[dict]:
+    """products 리스트에서 INN 토큰 중 하나라도 포함된 레코드 필터.
+
+    scientific_name + inn_name + trade_name 을 모두 스캔.
+    atc_l3 가 주어지면 atc_code 첫 4자리 일치도 요구.
+    """
+    if not inn_tokens and not atc_l3:
+        return list(products)
+
+    tokens_lc = [t.lower() for t in inn_tokens]
+    atc_pref = atc_l3.upper().strip()
+    out: list[dict] = []
+    for p in products:
+        hay = " ".join([
+            str(p.get("scientific_name") or ""),
+            str(p.get("inn_name") or ""),
+            str(p.get("trade_name") or ""),
+        ]).lower()
+
+        inn_ok = (not tokens_lc) or any(t in hay for t in tokens_lc)
+        if not inn_ok:
+            continue
+        if atc_pref:
+            atc = (p.get("atc_code") or "").upper()
+            if atc[:4] != atc_pref:
+                continue
+        out.append(p)
+    return out
+
+
+@app.post("/api/p1/competitor-map")
+async def api_p1_competitor_map(req: P1CompetitorMapRequest):
+    """Phase 5: 경쟁사 유통 에이전트 역추적.
+
+    주어진 약품의 동일 성분/치료군 경쟁 브랜드를 SFDA 에서 찾아
+    유통 에이전트별 시장 시그널(브랜드 수/평균가/낙찰 실적)을 역산.
+    """
+    drug: Optional[TargetDrug] = None
+    if req.product_key:
+        drug = _registry.get_drug(req.product_key)
+
+    filters = _derive_competitor_filters(drug, req)
+    if not filters["inn_tokens"] and not filters["trade_name"] and not filters["target_atc_l3"]:
+        return JSONResponse(
+            status_code=422,
+            content={"ok": False, "error": "product_key / trade_name / target_inn 중 하나는 필요합니다."},
+        )
+
+    sb = _get_supabase()
+    if not sb:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "Supabase 미설정 — products 조회 불가."},
+        )
+
+    # 1) SFDA 매칭 fetch (products 테이블, country=SA)
+    products: list[dict] = []
+    try:
+        resp = (
+            sb.table("products")
+            .select("product_id,trade_name,inn_name,scientific_name,"
+                    "agent_or_supplier,atc_code,price_sar,regulatory_id,"
+                    "dosage_form,strength,source_tier,source_url")
+            .eq("country", "SA")
+            .not_.is_("agent_or_supplier", "null")
+            .limit(max(100, min(int(req.product_limit), 10000)))
+            .execute()
+        )
+        products = resp.data or []
+    except Exception as exc:
+        logger.warning("P1 competitor-map DB 조회 실패: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"ok": False, "error": f"products 테이블 조회 실패: {str(exc)[:160]}"},
+        )
+
+    # 2) INN/ATC 필터
+    matched = _filter_products_by_inn_tokens(
+        products,
+        filters["inn_tokens"],
+        atc_l3=filters["target_atc_l3"],
+    )
+
+    if not matched:
+        return {
+            "ok": True,
+            "agents": [],
+            "total_agents": 0,
+            "total_brands": 0,
+            "filters": filters,
+            "products_scanned": len(products),
+            "notes": ["경쟁 브랜드 매칭 없음 — INN/ATC 필터를 완화해 보세요."],
+        }
+
+    # 3) tender records (선택)
+    tender_records = None
+    if req.include_tender_power:
+        try:
+            from analytics.tender_power import (
+                contracts_rows_to_records, nupco_awards_rows_to_records,
+            )
+
+            contracts_rows: list[dict] = []
+            awards_rows: list[dict] = []
+            try:
+                c_resp = (
+                    sb.table("contracts")
+                    .select("supplier_name,contract_value,start_date,end_date,category")
+                    .eq("country", "SA")
+                    .not_.is_("supplier_name", "null")
+                    .limit(5000)
+                    .execute()
+                )
+                contracts_rows = c_resp.data or []
+            except Exception as exc:
+                logger.debug("competitor-map: contracts 스킵 (%s)", str(exc)[:80])
+
+            try:
+                a_resp = (
+                    sb.table("nupco_awards")
+                    .select("winner_name,award_value,award_date,category")
+                    .eq("country", "SA")
+                    .limit(5000)
+                    .execute()
+                )
+                awards_rows = a_resp.data or []
+            except Exception as exc:
+                logger.debug("competitor-map: nupco_awards 스킵 (%s)", str(exc)[:80])
+
+            if contracts_rows or awards_rows:
+                tender_records = (
+                    contracts_rows_to_records(contracts_rows)
+                    + nupco_awards_rows_to_records(awards_rows)
+                )
+        except Exception as exc:
+            logger.debug("competitor-map: tender 로드 실패 (%s)", str(exc)[:100])
+
+    # 4) 경쟁사 맵 생성
+    try:
+        from analytics.competitor_map import build_competitor_map
+
+        result = await asyncio.to_thread(
+            build_competitor_map,
+            matched,
+            target_brand=filters["trade_name"] or None,
+            target_agent=None,
+            tender_records=tender_records,
+            min_brand_count=1,
+            top_n=int(req.top_n),
+        )
+        result["ok"] = True
+        result["filters"] = filters
+        result["products_scanned"] = len(products)
+        result["products_matched"] = len(matched)
+        result["tender_records_used"] = len(tender_records) if tender_records else 0
+        return result
+    except Exception as exc:
+        logger.exception("P1 competitor-map 실패")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": f"경쟁사 맵 생성 실패: {str(exc)[:200]}"},
         )
 
 
