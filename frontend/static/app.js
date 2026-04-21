@@ -205,7 +205,7 @@ async function loadExchange() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 const TODO_FIXED_IDS = ['p1', 'rep', 'p2', 'p3'];
-const TODO_LS_KEY    = 'sg_upharma_todos_v1';
+const TODO_LS_KEY    = 'sa_upharma_todos_v1';
 let _lastTodoAddAt   = 0;
 
 /** localStorage에서 todo 상태 읽기 */
@@ -331,8 +331,8 @@ function _renderCustomTodos(state) {
    §5. 보고서 탭 관리 (N4)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-const REPORTS_LS_KEY = 'sg_upharma_reports_v1';
-const REPORTS_FULL_LS_KEY = 'sg_upharma_reports_full_v1';
+const REPORTS_LS_KEY = 'sa_upharma_reports_v1';
+const REPORTS_FULL_LS_KEY = 'sa_upharma_reports_full_v1';
 
 /** _addReportEntry 직후 연속 동일 호출 방지(ms 이내 동일 품목·PDF) */
 let _lastReportDedupe = { fp: '', t: 0 };
@@ -1764,7 +1764,7 @@ async function runP2PriceAnalysis() {
    §12b. 3공정 · 바이어 발굴 (Perplexity prospects)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-const P3_LS_KEY = 'sg_upharma_p3_prospects_v1';
+const P3_LS_KEY = 'sa_upharma_p3_prospects_v1';
 
 function _p3LoadStore() {
   try   { return JSON.parse(localStorage.getItem(P3_LS_KEY) || '[]'); }
@@ -2363,6 +2363,278 @@ async function loadCompetitorMap(opts) {
   }
 }
 
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   §SA-P3. 바이어 발굴 파이프라인 (Singapore 방식 래퍼)
+   POST /api/buyers/run → poll /api/buyers/status → GET /api/buyers/result
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+let _p3PollTimer        = null;
+let _p3Buyers           = [];
+let _p3DisplayedBuyers  = [];
+let _p3PdfName          = null;
+let _p3SelectedReportId = '';
+
+function _syncP3ReportOptions() {
+  const sel = document.getElementById('p3-report-select');
+  if (!sel) return;
+  const p1Reports = _loadReports().filter(r => r.report_type === 'p1');
+  sel.innerHTML = ['<option value="">시장조사 보고서를 선택하세요</option>']
+    .concat(p1Reports.map(r => {
+      const name = r.product || r.report_title || '보고서';
+      return `<option value="${r.id}">시장조사 보고서 · ${_escHtml(name)} · ${_escHtml(r.timestamp || '')}</option>`;
+    })).join('');
+
+  const noReportBanner = document.getElementById('p3-no-report-banner');
+  if (p1Reports.length) {
+    if (noReportBanner) noReportBanner.style.display = 'none';
+    if (!_p3SelectedReportId || !p1Reports.find(r => String(r.id) === _p3SelectedReportId)) {
+      _p3SelectedReportId = String(p1Reports[0].id);
+    }
+    sel.value = _p3SelectedReportId;
+  } else {
+    if (noReportBanner) noReportBanner.style.display = '';
+  }
+}
+
+function onP3ReportChange() {
+  const sel = document.getElementById('p3-report-select');
+  _p3SelectedReportId = sel?.value || '';
+}
+
+async function runP3Pipeline() {
+  const btn     = document.getElementById('btn-p3-run');
+  const icon    = document.getElementById('p3-run-icon');
+  const errEl   = document.getElementById('p3-error-msg');
+  const product = document.getElementById('product-select')?.value || 'sereterol-activair';
+  const targetCountry = 'Saudi Arabia';
+  const targetRegion  = 'Middle East';
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = '…';
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+  _renderP3Skeleton();
+  const secEl = document.getElementById('p3-result-section');
+  if (secEl) secEl.style.display = '';
+  const loadEl = document.getElementById('p3-loading-state');
+  if (loadEl) loadEl.style.display = '';
+
+  try {
+    const res = await fetch('/api/buyers/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_key: product, target_country: targetCountry, target_region: targetRegion }),
+    });
+    const data = await res.json();
+    if (res.status !== 409 && !res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (_p3PollTimer) clearInterval(_p3PollTimer);
+    _p3PollTimer = setInterval(_pollP3, 2500);
+  } catch (e) {
+    if (errEl) { errEl.style.display = ''; errEl.textContent = `오류: ${e.message}`; }
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = '▶';
+    if (loadEl) loadEl.style.display = 'none';
+  }
+}
+
+(async function _p3AutoResume() {
+  try {
+    const res  = await fetch('/api/buyers/status');
+    const data = await res.json();
+    if (data.status === 'running') {
+      const btn  = document.getElementById('btn-p3-run');
+      const icon = document.getElementById('p3-run-icon');
+      if (btn)  btn.disabled = true;
+      if (icon) icon.textContent = '…';
+      const loadEl = document.getElementById('p3-loading-state');
+      if (loadEl) loadEl.style.display = '';
+      if (_p3PollTimer) clearInterval(_p3PollTimer);
+      _p3PollTimer = setInterval(_pollP3, 2500);
+    } else if (data.status === 'done') {
+      const rr     = await fetch('/api/buyers/result');
+      const result = await rr.json();
+      _p3Buyers  = [];
+      _p3PdfName = result.pdf || null;
+      const secEl = document.getElementById('p3-result-section');
+      if (secEl) secEl.style.display = '';
+      const cardsEl = document.getElementById('p3-cards');
+      if (cardsEl) cardsEl.innerHTML = '';
+    }
+  } catch (_) {}
+})();
+
+async function _pollP3() {
+  try {
+    const res  = await fetch('/api/buyers/status');
+    const data = await res.json();
+
+    if (data.status === 'done') {
+      clearInterval(_p3PollTimer); _p3PollTimer = null;
+      const loadEl = document.getElementById('p3-loading-state');
+      if (loadEl) loadEl.style.display = 'none';
+
+      const rr     = await fetch('/api/buyers/result');
+      const result = await rr.json();
+      _p3Buyers  = result.buyers || [];
+      _p3PdfName = result.pdf   || null;
+
+      _renderP3Cards(_p3Buyers);
+      const secEl = document.getElementById('p3-result-section');
+      if (secEl) secEl.style.display = '';
+      if (_p3PdfName) {
+        _addReportEntry({ trade_name: '바이어 발굴', inn: null, verdict: '—' }, _p3PdfName, 'p3');
+      }
+      const btn  = document.getElementById('btn-p3-run');
+      const icon = document.getElementById('p3-run-icon');
+      if (btn)  btn.disabled = false;
+      if (icon) icon.textContent = '▶';
+
+    } else if (data.status === 'error') {
+      clearInterval(_p3PollTimer); _p3PollTimer = null;
+      const errEl = document.getElementById('p3-error-msg');
+      if (errEl) { errEl.style.display = ''; errEl.textContent = `오류: ${data.step_label || '파이프라인 실패'}`; }
+      const loadEl = document.getElementById('p3-loading-state');
+      if (loadEl) loadEl.style.display = 'none';
+      const btn  = document.getElementById('btn-p3-run');
+      const icon = document.getElementById('p3-run-icon');
+      if (btn)  btn.disabled = false;
+      if (icon) icon.textContent = '▶';
+    }
+  } catch (_) {}
+}
+
+function _renderP3Skeleton() {
+  const wrap = document.getElementById('p3-cards');
+  if (!wrap) return;
+  wrap.innerHTML = Array.from({ length: 10 }, (_, i) => `
+    <div class="p3-list-row" style="pointer-events:none;">
+      <span class="p3-card-rank" style="opacity:.25;">${i + 1}</span>
+      <div class="p3-skel-line" style="height:13px;width:55%;border-radius:4px;"></div>
+    </div>`).join('');
+}
+
+function _renderP3Cards(buyers) {
+  const wrap = document.getElementById('p3-cards');
+  if (!wrap) return;
+
+  _p3DisplayedBuyers = buyers;
+
+  if (!buyers.length) {
+    wrap.innerHTML = '<div class="p3-empty">발굴된 바이어가 없습니다.</div>';
+    return;
+  }
+
+  wrap.innerHTML = buyers.map((b, i) => `
+    <div class="p3-list-row" onclick="showBuyerDetail(${i})">
+      <span class="p3-card-rank">${i + 1}</span>
+      <span class="p3-list-name">${_escHtml(b.company_name || '-')}</span>
+    </div>`).join('');
+
+  const criteriaBox = document.getElementById('p3-criteria-box');
+  const cardsTitle  = document.getElementById('p3-cards-title');
+  const reportBar   = document.getElementById('p3-report-bar');
+  if (criteriaBox) criteriaBox.style.display = '';
+  if (cardsTitle)  cardsTitle.style.display  = '';
+  if (reportBar)   reportBar.style.display   = '';
+}
+
+function showBuyerDetail(idx) {
+  const b = _p3DisplayedBuyers[idx] || _p3Buyers[idx];
+  if (!b) return;
+  const e = b.enriched || {};
+  const priLabel = b.priority === 1 ? '성분 일치' : 'Saudi Arabia';
+  const priClass = b.priority === 1 ? 'p3-tag-p1' : 'p3-tag-p2';
+
+  function row(label, val) {
+    if (!val || val === '-' || val === null || val === undefined) return '';
+    return `<tr><th>${label}</th><td>${_escHtml(String(val))}</td></tr>`;
+  }
+  function ynRow(label, val) {
+    if (val === true)  return `<tr><th>${label}</th><td><span class="bm-yes">✓ 있음</span></td></tr>`;
+    if (val === false) return `<tr><th>${label}</th><td><span class="bm-no">✗ 없음</span></td></tr>`;
+    return '';
+  }
+
+  const hasSource = (e.source_urls || []).length > 0 || !!b.perplexity_text;
+  const matched    = (b.matched_ingredients || []).join(' · ');
+  const territories = (e.territories || []).join(', ');
+  const metaParts = [b.country, b.category].filter(v => v && v !== '-').map(v => _escHtml(v)).join(' · ');
+
+  const contactRows = [
+    row('주소', b.address), row('전화', b.phone), row('팩스', b.fax),
+    row('이메일', b.email), row('웹사이트', b.website),
+  ].join('');
+  const sizeRows = [
+    row('연 매출', e.revenue), row('임직원 수', e.employees), row('설립연도', e.founded),
+    territories ? `<tr><th>사업 지역</th><td>${_escHtml(territories)}</td></tr>` : '',
+  ].join('');
+  const capRows = [
+    ynRow('GMP 인증', e.has_gmp), ynRow('수입 이력', e.import_history), ynRow('공공조달 이력', e.procurement_history),
+  ].join('');
+  const channelRows = [
+    ynRow('공공 채널', e.public_channel), ynRow('민간 채널', e.private_channel),
+    ynRow('약국 체인', e.has_pharmacy_chain), ynRow('MAH 대행', e.mah_capable),
+    row('한국 거래 경험', e.korea_experience),
+  ].join('');
+
+  const overview = (e.company_overview_kr || '').trim();
+  const reason   = (e.recommendation_reason || '').trim();
+
+  document.getElementById('buyer-modal-body').innerHTML = `
+    <div class="bm-header">
+      <div class="bm-rank">${idx+1}</div>
+      <div class="bm-title">
+        <div class="bm-name">${_escHtml(b.company_name || '-')}</div>
+        <div class="bm-meta">${metaParts}
+          <span class="p3-tag ${priClass}" style="margin-left:6px;">${priLabel}</span>
+        </div>
+      </div>
+    </div>
+    ${overview && overview !== '-' ? `<div class="bm-section">기업 개요</div><div class="bm-summary">${_escHtml(overview)}</div>` : ''}
+    ${reason  && reason  !== '-' ? `<div class="bm-section">채택 이유</div><div class="bm-summary">${_escHtml(reason)}</div>`  : ''}
+    ${contactRows ? `<div class="bm-section">연락처</div><table class="bm-table">${contactRows}</table>` : ''}
+    ${sizeRows    ? `<div class="bm-section">기업 규모</div><table class="bm-table">${sizeRows}</table>` : ''}
+    ${capRows     ? `<div class="bm-section">역량 · 실적</div><table class="bm-table">${capRows}</table>` : ''}
+    ${channelRows ? `<div class="bm-section">채널 · 파트너 적합성</div><table class="bm-table">${channelRows}</table>` : ''}
+    ${matched   ? `<div class="bm-section">성분 매칭</div><div class="bm-match">🧪 ${_escHtml(matched)}</div>` : ''}
+    ${hasSource ? `<div class="bm-section">출처</div><div class="bm-sources">AI 분석</div>` : ''}
+  `;
+
+  const overlay = document.getElementById('buyer-modal-overlay');
+  if (overlay) { overlay.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+}
+
+function p3ReRank() {
+  const cbs = [...document.querySelectorAll('.p3-cb:checked')];
+  if (!cbs.length) { _renderP3Cards([..._p3Buyers]); return; }
+  const scored = _p3Buyers.map(b => {
+    const scores = b.scores || {};
+    const e = b.enriched || {};
+    let total = 0;
+    cbs.forEach(cb => {
+      const key = cb.dataset.key;
+      const w   = parseFloat(cb.dataset.weight) || 0;
+      const v   = key === 'pharmacy_chain' ? (e.has_pharmacy_chain ? 100 : 0) : (scores[key] || 0);
+      total += (v * w) / 100;
+    });
+    return { ...b, _rerank: total };
+  });
+  scored.sort((a, b) => b._rerank - a._rerank);
+  _renderP3Cards(scored);
+}
+
+function p3ClearAll() {
+  document.querySelectorAll('.p3-cb').forEach(cb => cb.checked = false);
+  _renderP3Cards([..._p3Buyers]);
+}
+
+function closeBuyerModal(e) {
+  if (e && e.target !== document.getElementById('buyer-modal-overlay')) return;
+  const overlay = document.getElementById('buyer-modal-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
 /** URL 해시 → 페이지 id */
 const _TAB_FROM_HASH = {
   '':      'main',
@@ -2393,3 +2665,4 @@ _p2UpdateManualNote();
 _p2UpdateRunEnabled();
 _p3RenderCache();
 initTabFromHash();
+_syncP3ReportOptions();

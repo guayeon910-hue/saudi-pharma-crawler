@@ -2506,6 +2506,282 @@ async def api_p2_price_analyze(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 커스텀 파이프라인 (신약 직접 분석)  ← Singapore /api/pipeline/custom 패턴
+# ═══════════════════════════════════════════════════════════════════════════
+
+class CustomPipelineRequest(BaseModel):
+    trade_name: str
+    inn: Optional[str] = None
+    dosage_form: Optional[str] = None
+    strength: Optional[str] = None
+
+
+@app.post("/api/pipeline/custom")
+async def start_custom_pipeline(req: CustomPipelineRequest):
+    """커스텀 신약 직접 분석 — 레지스트리 외 품목 파이프라인 실행."""
+    if _pipeline_tasks.get("__custom__", {}).get("status") == "running":
+        raise HTTPException(409, "커스텀 파이프라인 실행 중")
+
+    drug = TargetDrug(
+        id="__custom__",
+        drug_type="manual",
+        trade_name=req.trade_name,
+        ingredient=req.inn or "",
+        dosage_form=req.dosage_form or "",
+        strength=req.strength or "",
+        target_countries=["SA"],
+        target_regions=["Middle East"],
+    )
+    _pipeline_tasks["__custom__"] = {
+        "status": "running",
+        "step": "db_load",
+        "step_label": "DB 조회·크롤링",
+        "result": None,
+        "refs": None,
+        "pdf": None,
+        "started_at": time.time(),
+    }
+
+    asyncio.create_task(_run_pipeline_for_product("__custom__", drug))
+    return {"status": "started", "trade_name": req.trade_name}
+
+
+@app.get("/api/pipeline/custom/status")
+async def get_custom_pipeline_status():
+    task = _pipeline_tasks.get("__custom__")
+    if not task:
+        raise HTTPException(404, "커스텀 파이프라인 상태 없음")
+    return {
+        "status": task["status"],
+        "step": task["step"],
+        "step_label": task["step_label"],
+        "has_result": task.get("result") is not None,
+        "ref_count": len(task.get("refs") or []),
+        "has_pdf": task.get("pdf") is not None,
+    }
+
+
+@app.get("/api/pipeline/custom/result")
+async def get_custom_pipeline_result():
+    task = _pipeline_tasks.get("__custom__")
+    if not task:
+        raise HTTPException(404, "커스텀 파이프라인 결과 없음")
+    if task["status"] == "running":
+        return JSONResponse({"status": "running", "step": task["step"]}, status_code=202)
+    return {
+        "result": task.get("result"),
+        "refs": task.get("refs"),
+        "pdf": task.get("pdf"),
+        "ai_sources": _ai_sources_cache.get("__custom__", []),
+        "perplexity_key_set": _perplexity_key_configured(),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 바이어 발굴 비동기 래퍼  ← Singapore-style POST/status/result
+# ═══════════════════════════════════════════════════════════════════════════
+
+class BuyersRunRequest(BaseModel):
+    product_key: Optional[str] = None
+    trade_name: Optional[str] = None
+    ingredients: Optional[str] = None
+    dosage_form: Optional[str] = None
+    strength: Optional[str] = None
+    active_criteria: Optional[list] = None
+    target_country: Optional[str] = "Saudi Arabia"
+    target_region: Optional[str] = "Middle East"
+
+
+_buyer_task: dict = {"status": "idle", "result": None, "error": None}
+
+
+@app.post("/api/buyers/run")
+async def buyers_run(req: BuyersRunRequest):
+    """바이어/파트너 발굴 비동기 실행 (Singapore pipeline 패턴)."""
+    if _buyer_task.get("status") == "running":
+        raise HTTPException(409, "바이어 발굴 실행 중")
+
+    _buyer_task.update({"status": "running", "result": None, "error": None, "started_at": time.time()})
+
+    async def _run():
+        try:
+            drug: Optional[TargetDrug] = None
+            if req.product_key:
+                drug = _registry.get_drug(req.product_key)
+
+            trade_name = (req.trade_name or (drug.trade_name if drug else "")).strip()
+            ingredients = (req.ingredients or (drug.ingredient if drug else "")).strip()
+            dosage_form = (req.dosage_form or (drug.dosage_form if drug else "")).strip()
+            strength = (req.strength or (drug.strength if drug else "")).strip()
+
+            if not trade_name and not ingredients:
+                _buyer_task.update({"status": "error", "error": "trade_name 또는 ingredients 필요"})
+                return
+
+            pplx = _get_pplx()
+            if not pplx:
+                _buyer_task.update({"status": "error", "error": "PERPLEXITY_API_KEY 미설정"})
+                return
+
+            excluded_domains: set[str] = set()
+            for s in SITES:
+                d = (s.get("domain") or "").strip().lower()
+                if d:
+                    excluded_domains.add(d)
+
+            drug_info = {
+                "trade_name": trade_name,
+                "ingredients": ingredients,
+                "dosage_form": dosage_form,
+                "strength": strength,
+            }
+
+            db_sources: list[dict] = []
+            sb = _get_supabase()
+            if sb:
+                db_sources = _load_ai_discovered_sources_for_p3(sb)
+
+            items = await asyncio.to_thread(
+                pplx.search_pharma_sources,
+                drug_info,
+                excluded_domains,
+            )
+            items_sorted = sorted(
+                items,
+                key=lambda x: float(x.get("relevance_score") or 0.0),
+                reverse=True,
+            )
+            merged = _merge_p3_prospect_lists(db_sources, items_sorted)
+            _buyer_task.update({
+                "status": "done",
+                "result": {"ok": True, "count": len(merged), "items": merged},
+            })
+        except Exception as exc:
+            logger.warning("Buyers run 실패: %s", exc)
+            _buyer_task.update({"status": "error", "error": str(exc)[:200]})
+
+    asyncio.create_task(_run())
+    return {"status": "started"}
+
+
+@app.get("/api/buyers/status")
+async def buyers_status():
+    return {
+        "status": _buyer_task.get("status", "idle"),
+        "has_result": _buyer_task.get("result") is not None,
+        "error": _buyer_task.get("error"),
+    }
+
+
+@app.get("/api/buyers/result")
+async def buyers_result():
+    if _buyer_task.get("status") == "running":
+        return JSONResponse({"status": "running"}, status_code=202)
+    result = _buyer_task.get("result")
+    if not result:
+        err = _buyer_task.get("error", "결과 없음")
+        raise HTTPException(404, err)
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P2 파이프라인 비동기 래퍼  ← Singapore-style POST/status/result
+# ═══════════════════════════════════════════════════════════════════════════
+
+class P2PipelineRequest(BaseModel):
+    report_filename: Optional[str] = None
+    market: Optional[str] = "public"
+    report_data: Optional[dict] = None
+    overrides: Optional[dict] = None
+
+
+_p2_pipeline_task: dict = {"status": "idle", "result": None, "error": None}
+
+
+@app.post("/api/p2/pipeline")
+async def p2_pipeline_run(req: P2PipelineRequest):
+    """P2 가격 분석 비동기 파이프라인 (Singapore 패턴)."""
+    if _p2_pipeline_task.get("status") == "running":
+        raise HTTPException(409, "P2 파이프라인 실행 중")
+
+    if not req.report_data:
+        raise HTTPException(400, "report_data 필드가 필요합니다.")
+
+    _p2_pipeline_task.update({"status": "running", "result": None, "error": None, "started_at": time.time()})
+
+    async def _run():
+        try:
+            mt = (req.market or "public").strip().lower()
+            fx = await asyncio.to_thread(_fetch_exchange_rates)
+            llm = _get_llm()
+            pipeline_fn = run_public_pipeline if mt == "public" else run_private_pipeline
+            result = await asyncio.to_thread(
+                pipeline_fn,
+                report_data=req.report_data,
+                pdf_bytes=None,
+                overrides=req.overrides,
+                exchange_rates=fx,
+                llm=llm,
+            )
+            _p2_pipeline_task.update({"status": "done", "result": result})
+        except Exception as exc:
+            logger.warning("P2 pipeline 실패: %s", exc)
+            _p2_pipeline_task.update({"status": "error", "error": str(exc)[:200]})
+
+    asyncio.create_task(_run())
+    return {"status": "started"}
+
+
+@app.get("/api/p2/pipeline/status")
+async def p2_pipeline_status():
+    return {
+        "status": _p2_pipeline_task.get("status", "idle"),
+        "has_result": _p2_pipeline_task.get("result") is not None,
+        "error": _p2_pipeline_task.get("error"),
+    }
+
+
+@app.get("/api/p2/pipeline/result")
+async def p2_pipeline_result():
+    if _p2_pipeline_task.get("status") == "running":
+        return JSONResponse({"status": "running"}, status_code=202)
+    result = _p2_pipeline_task.get("result")
+    if not result:
+        err = _p2_pipeline_task.get("error", "결과 없음")
+        raise HTTPException(404, err)
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 통합 보고서 다운로드
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/report/combined")
+async def get_combined_report():
+    """최신 사우디 보고서(sa_*.docx) 반환. 여러 파일이면 가장 최신 파일 제공."""
+    reports_dir = ROOT / "reports"
+    if not reports_dir.exists():
+        raise HTTPException(404, "reports 디렉터리 없음")
+
+    # sa_ 접두사 우선, 없으면 전체
+    files = sorted(reports_dir.glob("sa_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not files:
+        files = sorted(reports_dir.glob("*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
+
+    if not files:
+        raise HTTPException(404, "보고서 파일 없음")
+
+    latest = files[0]
+    if not latest.resolve().is_relative_to(reports_dir.resolve()):
+        raise HTTPException(403, "접근 거부")
+    return FileResponse(
+        latest,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=latest.name,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 정적 파일 서빙
 # ═══════════════════════════════════════════════════════════════════════════
 
