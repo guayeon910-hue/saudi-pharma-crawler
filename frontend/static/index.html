@@ -95,12 +95,15 @@
                 </div>
                 <div class="selector-row" style="flex-wrap:wrap;gap:10px;margin-top:10px;">
                   <div class="p2-seg-row" style="margin-bottom:0;flex:1;min-width:180px;">
-                    <button class="p2-seg-btn on" id="p2-ai-seg-public"  type="button" onclick="setP2AiSeg('public')">공공 시장 (NUPCO)</button>
-                    <button class="p2-seg-btn"    id="p2-ai-seg-private" type="button" onclick="setP2AiSeg('private')">민간 시장</button>
+                    <button class="p2-seg-btn on" id="p2-ai-seg-public"  type="button" onclick="setP2AiSeg('public')"  title="NUPCO·MOH 등 정부 입찰(공공조달) 기준. 입찰 사양·물량에 따라 민간 소매가보다 높게 형성될 수 있습니다.">공공 시장 (NUPCO)</button>
+                    <button class="p2-seg-btn"    id="p2-ai-seg-private" type="button" onclick="setP2AiSeg('private')" title="민간 약국·병원·도매 유통 기준. 에이전트 마진과 소매 마크업이 포함됩니다.">민간 시장</button>
                   </div>
                   <button class="btn-analyze" id="btn-p2-ai-run" type="button" onclick="runP2AiPipeline()">
                     <span id="p2-ai-run-icon">▶</span> AI 가격 분석 실행
                   </button>
+                </div>
+                <div class="public-private-note">
+                  ℹ️ <strong>공공 시장</strong>은 NUPCO·정부 입찰 사양 및 물량에 따라 <strong>민간 소매가보다 높게 형성</strong>될 수 있습니다. 시장 유형에 따라 수수료·운임 가정이 다르게 적용됩니다.
                 </div>
                 <div id="p2-ai-seg-desc" class="p2-note" style="margin-top:5px;"></div>
                 <div id="p2-loading-state" class="p1-simple-loading" style="display:none;">
@@ -115,7 +118,7 @@
 
                   <div class="p2-col p2-col--agg" onclick="openP2EditModal('agg')" style="cursor:pointer;">
                     <div class="p2-col-rank-row">
-                      <span class="p2-col-label">저가 진입</span>
+                      <span class="p2-col-label"><span class="term" data-tip="에이전트 수수료 3%, 운임 승수 0.85x 적용. 가격 경쟁력 우선 전략으로 시장 초기 침투에 적합합니다.">저가 진입</span></span>
                     </div>
                     <div class="p2-col-price" id="p2c-price-agg">—</div>
                     <div class="p2-col-currency">USD</div>
@@ -125,7 +128,7 @@
 
                   <div class="p2-col p2-col--avg" onclick="openP2EditModal('avg')" style="cursor:pointer;">
                     <div class="p2-col-rank-row">
-                      <span class="p2-col-label">기준가</span>
+                      <span class="p2-col-label"><span class="term" data-tip="에이전트 수수료 5%, 운임 승수 1.00x 적용. 시장 평균 수준의 균형 잡힌 가격 전략입니다.">기준가</span></span>
                     </div>
                     <div class="p2-col-price" id="p2c-price-avg">—</div>
                     <div class="p2-col-currency">USD</div>
@@ -135,7 +138,7 @@
 
                   <div class="p2-col p2-col--cons" onclick="openP2EditModal('cons')" style="cursor:pointer;">
                     <div class="p2-col-rank-row">
-                      <span class="p2-col-label">프리미엄</span>
+                      <span class="p2-col-label"><span class="term" data-tip="에이전트 수수료 10%, 운임 승수 1.20x 적용. 브랜드 프리미엄 및 수익 마진 확보를 위한 보수적 전략입니다.">프리미엄</span></span>
                     </div>
                     <div class="p2-col-price" id="p2c-price-cons">—</div>
                     <div class="p2-col-currency">USD</div>
@@ -147,6 +150,9 @@
 
                 <div class="selector-card" id="p2-product-list-wrap" style="margin-top:10px;display:none;">
                   <div id="p2-product-list"></div>
+                </div>
+                <div class="price-disclaimer">
+                  <strong>가격 추정치 안내</strong> — 표시된 <span class="term" data-tip="Free On Board: 수출항 본선 인도 기준 가격. 현지 도착가(CIF)는 운임·보험료가 추가됩니다.">FOB</span> 가격은 수집된 공개 데이터(<span class="term" data-tip="Saudi Food and Drug Authority — 사우디 식약청 등록 의약품 데이터베이스">SFDA</span>·NUPCO·민간 약국) 기반의 역산 추정치입니다. 실제 입찰가·협상가와 차이가 있을 수 있으며, 환율·수수료 가정에 따라 달라집니다. 의사결정 전 현지 에이전트 확인을 권장합니다.
                 </div>
               </div>
 

@@ -1232,12 +1232,18 @@ def _generate_report_for_pipeline(
             "search_duration_sec": dur,
         }
 
+        try:
+            fx = _fetch_exchange_rates()
+        except Exception:
+            fx = None
+
         output_path = generate_report(
             drug,
             report_data,
             analysis=analysis,
             refs=refs or [],
             report_meta=report_meta,
+            exchange_rates=fx,
         )
         return output_path.name
     except Exception as e:
