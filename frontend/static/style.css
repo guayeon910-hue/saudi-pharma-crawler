@@ -1570,12 +1570,17 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 }
 .btn-toggle-custom:hover { opacity: 1; }
 
-/* 사우디 전용 경쟁사·White-Space 토글 래퍼 */
-.sa-advanced-wrap {
-  margin-top: 8px;
+/* 사우디 전용: 그리드 하단 전폭 패널 래퍼 */
+.sa-panels-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
 }
-.sa-advanced-toggle {
-  margin-bottom: 0;
+.sa-panels-wrap .competitor-map-card,
+.sa-panels-wrap .p3-whitespace-card {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
