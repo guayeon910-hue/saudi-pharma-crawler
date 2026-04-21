@@ -128,6 +128,14 @@ function loadMacro() {
 function runP2AiPipeline()   { return runP2PriceAnalysis(); }
 function setP2AiSeg(seg, el) { return setP2Market(seg, el); }
 
+/* ── 로딩 상태 헬퍼 (싱가포르 동일 패턴) ── */
+function _showP1Loading()     { const el = document.getElementById('p1-loading-state');     if (el) el.style.display = 'flex'; }
+function _hideP1Loading()     { const el = document.getElementById('p1-loading-state');     if (el) el.style.display = 'none'; }
+function _showCustomLoading() { const el = document.getElementById('custom-loading-state'); if (el) el.style.display = 'flex'; }
+function _hideCustomLoading() { const el = document.getElementById('custom-loading-state'); if (el) el.style.display = 'none'; }
+function _showP2Loading()     { const el = document.getElementById('p2-loading-state');     if (el) el.style.display = 'flex'; }
+function _hideP2Loading()     { const el = document.getElementById('p2-loading-state');     if (el) el.style.display = 'none'; }
+
 /**
  * 탭 전환: 모든 .page / .tab 비활성 후 대상만 활성화.
  * @param {string} id  — 대상 페이지 element ID
@@ -639,6 +647,7 @@ async function runPipeline() {
   document.getElementById('report-card').classList.remove('visible');
   document.getElementById('btn-analyze').disabled = true;
   document.getElementById('btn-icon').textContent  = '⏳';
+  _showP1Loading();
 
   const reBtn = document.getElementById('btn-reanalyze');
   if (reBtn) reBtn.style.display = 'none';
@@ -681,6 +690,7 @@ async function runPipeline() {
 function _resetBtn() {
   document.getElementById('btn-analyze').disabled = false;
   document.getElementById('btn-icon').textContent  = '▶';
+  _hideP1Loading();
 }
 
 /**
@@ -798,6 +808,7 @@ function _resetCustomProgress() {
 function _resetCustomBtn() {
   document.getElementById('btn-custom').disabled = false;
   document.getElementById('custom-icon').textContent = '▶';
+  _hideCustomLoading();
 }
 
 async function runCustomPipeline() {
@@ -815,6 +826,7 @@ async function runCustomPipeline() {
   document.getElementById('report-card').classList.remove('visible');
   document.getElementById('btn-custom').disabled = true;
   document.getElementById('custom-icon').textContent = '⏳';
+  _showCustomLoading();
 
   _customPipelineHandlingDone = false;
   _setCustomProgress('analyze', 'running');
@@ -1718,6 +1730,7 @@ async function _p2PerformRequest(state, overrides = null) {
   const icon = document.getElementById('p2-ai-run-icon');
   if (btn) btn.disabled = true;
   if (icon) icon.textContent = '⏳';
+  _showP2Loading();
 
   try {
     const fd = _p2BuildFormData(state, overrides);
@@ -1752,6 +1765,7 @@ async function _p2PerformRequest(state, overrides = null) {
   } finally {
     _p2Running = false;
     if (icon) icon.textContent = '▶';
+    _hideP2Loading();
     _p2UpdateRunEnabled();
   }
 }
