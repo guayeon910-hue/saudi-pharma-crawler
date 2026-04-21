@@ -4,7 +4,7 @@
     {
       "name": "api",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["api_server.py"],
+      "runtimeArgs": ["-m", "uvicorn", "frontend.server:app", "--host", "0.0.0.0", "--port", "8000"],
       "port": 8000
     },
     {

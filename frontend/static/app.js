@@ -2576,11 +2576,18 @@ function _renderP3Cards(buyers) {
     return;
   }
 
-  wrap.innerHTML = buyers.map((b, i) => `
-    <div class="p3-list-row" onclick="showBuyerDetail(${i})">
+  wrap.innerHTML = buyers.map((b, i) => {
+    /* Perplexity 결과: title / domain 필드 사용 */
+    const name = b.company_name || b.title || b.domain || '-';
+    const sub  = b.country || b.category || '';
+    return `<div class="p3-list-row" onclick="showBuyerDetail(${i})">
       <span class="p3-card-rank">${i + 1}</span>
-      <span class="p3-list-name">${_escHtml(b.company_name || '-')}</span>
-    </div>`).join('');
+      <div style="flex:1;min-width:0;">
+        <div class="p3-list-name">${_escHtml(name)}</div>
+        ${sub ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">${_escHtml(sub)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 
   const criteriaBox = document.getElementById('p3-criteria-box');
   const cardsTitle  = document.getElementById('p3-cards-title');
@@ -2593,63 +2600,57 @@ function _renderP3Cards(buyers) {
 function showBuyerDetail(idx) {
   const b = _p3DisplayedBuyers[idx] || _p3Buyers[idx];
   if (!b) return;
-  const e = b.enriched || {};
-  const priLabel = b.priority === 1 ? '성분 일치' : 'Saudi Arabia';
-  const priClass = b.priority === 1 ? 'p3-tag-p1' : 'p3-tag-p2';
 
-  function row(label, val) {
-    if (!val || val === '-' || val === null || val === undefined) return '';
-    return `<tr><th>${label}</th><td>${_escHtml(String(val))}</td></tr>`;
-  }
+  // Perplexity API 필드: title / domain / url / description / category / relevance_score / has_price_data / has_product_listing / language
+  const name     = b.title || b.company_name || b.domain || '-';
+  const domain   = b.domain   || '';
+  const url      = b.url      || b.website   || '';
+  const desc     = (b.description || '').trim();
+  const category = b.category || '';
+  const lang     = b.language  || '';
+  const relScore = b.relevance_score != null ? b.relevance_score : null;
+
   function ynRow(label, val) {
     if (val === true)  return `<tr><th>${label}</th><td><span class="bm-yes">✓ 있음</span></td></tr>`;
     if (val === false) return `<tr><th>${label}</th><td><span class="bm-no">✗ 없음</span></td></tr>`;
     return '';
   }
+  function row(label, val) {
+    if (!val || val === '-' || val === null || val === undefined) return '';
+    return `<tr><th>${label}</th><td>${_escHtml(String(val))}</td></tr>`;
+  }
 
-  const hasSource = (e.source_urls || []).length > 0 || !!b.perplexity_text;
-  const matched    = (b.matched_ingredients || []).join(' · ');
-  const territories = (e.territories || []).join(', ');
-  const metaParts = [b.country, b.category].filter(v => v && v !== '-').map(v => _escHtml(v)).join(' · ');
+  const metaParts = [category, lang].filter(v => v && v !== '-').map(v => _escHtml(v)).join(' · ');
+  const catLabel  = category
+    ? `<span class="p3-tag p3-tag-p2" style="margin-left:6px;">${_escHtml(category)}</span>`
+    : '';
 
-  const contactRows = [
-    row('주소', b.address), row('전화', b.phone), row('팩스', b.fax),
-    row('이메일', b.email), row('웹사이트', b.website),
-  ].join('');
-  const sizeRows = [
-    row('연 매출', e.revenue), row('임직원 수', e.employees), row('설립연도', e.founded),
-    territories ? `<tr><th>사업 지역</th><td>${_escHtml(territories)}</td></tr>` : '',
-  ].join('');
-  const capRows = [
-    ynRow('GMP 인증', e.has_gmp), ynRow('수입 이력', e.import_history), ynRow('공공조달 이력', e.procurement_history),
-  ].join('');
-  const channelRows = [
-    ynRow('공공 채널', e.public_channel), ynRow('민간 채널', e.private_channel),
-    ynRow('약국 체인', e.has_pharmacy_chain), ynRow('MAH 대행', e.mah_capable),
-    row('한국 거래 경험', e.korea_experience),
+  const infoRows = [
+    row('도메인', domain),
+    row('언어', lang),
+    row('카테고리', category),
+    relScore != null
+      ? `<tr><th>관련도</th><td>${relScore === 1 ? '높음' : relScore === 0 ? '낮음' : relScore}</td></tr>`
+      : '',
+    ynRow('가격 정보 포함', b.has_price_data),
+    ynRow('제품 목록 포함', b.has_product_listing),
   ].join('');
 
-  const overview = (e.company_overview_kr || '').trim();
-  const reason   = (e.recommendation_reason || '').trim();
+  const urlBlock = url
+    ? `<div class="bm-section">링크</div><div class="bm-summary"><a href="${_escHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);word-break:break-all;">${_escHtml(url)}</a></div>`
+    : '';
 
   document.getElementById('buyer-modal-body').innerHTML = `
     <div class="bm-header">
-      <div class="bm-rank">${idx+1}</div>
+      <div class="bm-rank">${idx + 1}</div>
       <div class="bm-title">
-        <div class="bm-name">${_escHtml(b.company_name || '-')}</div>
-        <div class="bm-meta">${metaParts}
-          <span class="p3-tag ${priClass}" style="margin-left:6px;">${priLabel}</span>
-        </div>
+        <div class="bm-name">${_escHtml(name)}</div>
+        <div class="bm-meta">${metaParts}${catLabel}</div>
       </div>
     </div>
-    ${overview && overview !== '-' ? `<div class="bm-section">기업 개요</div><div class="bm-summary">${_escHtml(overview)}</div>` : ''}
-    ${reason  && reason  !== '-' ? `<div class="bm-section">채택 이유</div><div class="bm-summary">${_escHtml(reason)}</div>`  : ''}
-    ${contactRows ? `<div class="bm-section">연락처</div><table class="bm-table">${contactRows}</table>` : ''}
-    ${sizeRows    ? `<div class="bm-section">기업 규모</div><table class="bm-table">${sizeRows}</table>` : ''}
-    ${capRows     ? `<div class="bm-section">역량 · 실적</div><table class="bm-table">${capRows}</table>` : ''}
-    ${channelRows ? `<div class="bm-section">채널 · 파트너 적합성</div><table class="bm-table">${channelRows}</table>` : ''}
-    ${matched   ? `<div class="bm-section">성분 매칭</div><div class="bm-match">🧪 ${_escHtml(matched)}</div>` : ''}
-    ${hasSource ? `<div class="bm-section">출처</div><div class="bm-sources">AI 분석</div>` : ''}
+    ${desc ? `<div class="bm-section">설명</div><div class="bm-summary">${_escHtml(desc)}</div>` : ''}
+    ${infoRows ? `<div class="bm-section">상세 정보</div><table class="bm-table">${infoRows}</table>` : ''}
+    ${urlBlock}
   `;
 
   const overlay = document.getElementById('buyer-modal-overlay');
