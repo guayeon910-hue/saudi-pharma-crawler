@@ -47,31 +47,31 @@ BASE_DELAY = 2.0
 # 프롬프트
 # ---------------------------------------------------------------------------
 
-SEARCH_SYSTEM_PROMPT = """You are a pharmaceutical market research assistant specializing in Saudi Arabia/KSA drug markets.
-Your task is to find online sources where pharmaceutical product information, pricing, or availability can be found in Saudi Arabia.
-Return ONLY a valid JSON array. No explanation, no markdown."""
+SEARCH_SYSTEM_PROMPT = """You are a pharmaceutical business development expert specializing in Saudi Arabia/KSA.
+Your task is to identify potential buyer or distributor companies for Korean pharmaceutical products entering the Saudi market.
+Return ONLY a valid JSON array. No explanation, no markdown, no code fences."""
 
-SEARCH_USER_TEMPLATE = """Find online sources in Saudi Arabia for this drug:
+SEARCH_USER_TEMPLATE = """Find Saudi Arabian pharmaceutical importers, distributors, or hospital procurement agencies that could be buyers for this Korean drug:
 - Drug: {trade_name}
 - Active Ingredients: {ingredients}
 - Dosage Form: {dosage_form}
 - Strength: {strength}
 
-Find sources that sell, list, or provide pricing for this drug or similar products with the same active ingredient in Saudi Arabia/KSA.
+Focus on: licensed importers, SFDA-registered distributors, NUPCO-approved suppliers, hospital group procurement offices, pharmacy chains in Saudi Arabia.
 
-Exclude these domains (we already have crawlers for them): {excluded}
+Exclude these already-known domains: {excluded}
 
-Return a JSON array of objects, each with:
-- "url": specific page URL
-- "title": site or page title
-- "description": one sentence about what the source offers
-- "category": one of "pharma_retailer", "pharma_regulator", "distributor", "hospital", "price_database", "other"
-- "has_price_data": boolean
-- "has_product_listing": boolean
+Return a JSON array of up to 10 objects. Each object must have:
+- "url": company website URL (homepage or product page)
+- "title": full company name
+- "description": 1-2 sentences about what this company does and why it is relevant as a buyer/distributor for this drug
+- "category": one of "importer", "distributor", "hospital_group", "pharmacy_chain", "government_procurement", "other"
+- "has_price_data": boolean — true if website shows drug prices
+- "has_product_listing": boolean — true if website lists this or similar drugs
 - "language": "en", "ar", or "mixed"
-- "relevance_score": float 0.0-1.0
+- "relevance_score": float 0.0–1.0 reflecting how likely this company could distribute this drug in Saudi Arabia
 
-Return ONLY the JSON array."""
+Return ONLY the JSON array, no other text."""
 
 
 # ---------------------------------------------------------------------------
@@ -169,11 +169,16 @@ class PerplexityClient:
             usage.get("completion_tokens", 0),
         )
 
-        # JSON 파싱 (마크다운 코드블록 처리)
-        sources_raw = self._parse_json(content)
-        if not isinstance(sources_raw, list):
-            logger.warning("Perplexity 응답이 리스트가 아님: %s", type(sources_raw))
+        # JSON 파싱 (마크다운 코드블록 처리, 실패 시 [] 반환)
+        try:
+            sources_raw = self._parse_json(content)
+        except Exception as parse_err:
+            logger.warning("Perplexity JSON 파싱 예외: %s | 응답: %s", parse_err, content[:300])
             sources_raw = []
+        if not isinstance(sources_raw, list):
+            logger.warning("Perplexity 응답이 리스트가 아님: %s | 응답: %s", type(sources_raw), content[:200])
+            sources_raw = []
+        logger.info("Perplexity sources_raw 파싱 결과: %d 항목", len(sources_raw))
 
         # citation URL → domain 매핑 (검증된 URL)
         citation_domains: set[str] = set()
@@ -306,13 +311,34 @@ class PerplexityClient:
 
     @staticmethod
     def _parse_json(text: str) -> Any:
-        """응답 텍스트에서 JSON 추출. 마크다운 코드블록도 처리."""
+        """응답 텍스트에서 JSON 추출. 여러 형식 순차 시도 후 실패 시 [] 반환."""
+        import re
         text = text.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            inner = "\n".join(lines[1:-1]) if len(lines) > 2 else ""
-            return json.loads(inner)
-        return json.loads(text)
+
+        # 1) 코드블록 추출 (```json ... ``` 또는 ``` ... ```)
+        m = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', text)
+        if m:
+            try:
+                return json.loads(m.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+        # 2) 전체 텍스트 직접 파싱
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 3) 텍스트 내부에서 JSON 배열 패턴 추출
+        m2 = re.search(r'\[[\s\S]*\]', text)
+        if m2:
+            try:
+                return json.loads(m2.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        logger.warning("Perplexity JSON 파싱 실패 — 응답 앞 300자: %s", text[:300])
+        return []
 
     def close(self) -> None:
         """HTTP 클라이언트 정리."""

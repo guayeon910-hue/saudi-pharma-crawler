@@ -2576,10 +2576,16 @@ function _renderP3Cards(buyers) {
     return;
   }
 
+  const CAT_KR_CARD = {
+    importer: '수입업체', distributor: '유통사', hospital_group: '병원 그룹',
+    pharmacy_chain: '약국 체인', government_procurement: '공공조달',
+    pharma_retailer: '약국/리테일', pharma_regulator: '규제기관',
+    price_database: '가격 DB', other: '기타',
+  };
   wrap.innerHTML = buyers.map((b, i) => {
     /* Perplexity 결과: title / domain 필드 사용 */
     const name = b.company_name || b.title || b.domain || '-';
-    const sub  = b.country || b.category || '';
+    const sub  = b.country || CAT_KR_CARD[b.category] || b.category || '';
     return `<div class="p3-list-row" onclick="showBuyerDetail(${i})">
       <span class="p3-card-rank">${i + 1}</span>
       <div style="flex:1;min-width:0;">
@@ -2610,6 +2616,20 @@ function showBuyerDetail(idx) {
   const lang     = b.language  || '';
   const relScore = b.relevance_score != null ? b.relevance_score : null;
 
+  // 카테고리 한국어 라벨
+  const CAT_KR = {
+    importer:              '수입업체',
+    distributor:           '유통사',
+    hospital_group:        '병원 그룹',
+    pharmacy_chain:        '약국 체인',
+    government_procurement:'공공조달',
+    pharma_retailer:       '약국/리테일',
+    pharma_regulator:      '규제기관',
+    price_database:        '가격 DB',
+    other:                 '기타',
+  };
+  const catKr = CAT_KR[category] || category || '';
+
   function ynRow(label, val) {
     if (val === true)  return `<tr><th>${label}</th><td><span class="bm-yes">✓ 있음</span></td></tr>`;
     if (val === false) return `<tr><th>${label}</th><td><span class="bm-no">✗ 없음</span></td></tr>`;
@@ -2620,18 +2640,21 @@ function showBuyerDetail(idx) {
     return `<tr><th>${label}</th><td>${_escHtml(String(val))}</td></tr>`;
   }
 
-  const metaParts = [category, lang].filter(v => v && v !== '-').map(v => _escHtml(v)).join(' · ');
-  const catLabel  = category
-    ? `<span class="p3-tag p3-tag-p2" style="margin-left:6px;">${_escHtml(category)}</span>`
+  const metaParts = [catKr, lang].filter(v => v && v !== '-').map(v => _escHtml(v)).join(' · ');
+  const catLabel  = catKr
+    ? `<span class="p3-tag p3-tag-p2" style="margin-left:6px;">${_escHtml(catKr)}</span>`
     : '';
+
+  let relLabel = '';
+  if (relScore != null) {
+    relLabel = relScore >= 0.8 ? '높음' : relScore >= 0.5 ? '보통' : '낮음';
+  }
 
   const infoRows = [
     row('도메인', domain),
-    row('언어', lang),
-    row('카테고리', category),
-    relScore != null
-      ? `<tr><th>관련도</th><td>${relScore === 1 ? '높음' : relScore === 0 ? '낮음' : relScore}</td></tr>`
-      : '',
+    row('언어', lang === 'en' ? '영어' : lang === 'ar' ? '아랍어' : lang === 'mixed' ? '혼합' : lang),
+    row('유형', catKr),
+    relScore != null ? `<tr><th>관련도</th><td>${relLabel} (${relScore})</td></tr>` : '',
     ynRow('가격 정보 포함', b.has_price_data),
     ynRow('제품 목록 포함', b.has_product_listing),
   ].join('');
@@ -2648,7 +2671,7 @@ function showBuyerDetail(idx) {
         <div class="bm-meta">${metaParts}${catLabel}</div>
       </div>
     </div>
-    ${desc ? `<div class="bm-section">설명</div><div class="bm-summary">${_escHtml(desc)}</div>` : ''}
+    ${desc ? `<div class="bm-section">기업 소개</div><div class="bm-summary">${_escHtml(desc)}</div>` : ''}
     ${infoRows ? `<div class="bm-section">상세 정보</div><table class="bm-table">${infoRows}</table>` : ''}
     ${urlBlock}
   `;

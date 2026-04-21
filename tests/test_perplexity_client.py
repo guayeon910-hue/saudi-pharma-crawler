@@ -240,7 +240,7 @@ class TestSearchPharmaSources(unittest.TestCase):
 
     @patch("httpx.Client")
     def test_non_json_response(self, MockClient):
-        """JSON 파싱 실패 시 빈 리스트 반환하지 않고 예외."""
+        """JSON 파싱 실패 시 빈 리스트 graceful 반환 (파이프라인 중단 없음)."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
@@ -253,9 +253,10 @@ class TestSearchPharmaSources(unittest.TestCase):
         MockClient.return_value = mock_http
 
         client = PerplexityClient(api_key="pplx-test")
-        # JSON 파싱 에러가 발생해야 함
-        with self.assertRaises(Exception):
-            client.search_pharma_sources(DRUG_INFO, EXCLUDED_DOMAINS)
+        # JSON 파싱 실패 시 예외 대신 빈 리스트 반환 (graceful degradation)
+        results = client.search_pharma_sources(DRUG_INFO, EXCLUDED_DOMAINS)
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), 0)
 
     @patch("httpx.Client")
     def test_duplicate_domains_deduplicated(self, MockClient):
