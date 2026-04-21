@@ -146,22 +146,31 @@ function toggleCustomForm() {
   if (btn) btn.textContent = (open ? '▾' : '▸') + ' 신약 직접 분석';
 }
 
-/* 사우디 전용 경쟁사·White-Space 패널 토글 */
-let _saAdvancedOpen = false;
-function toggleSaAdvanced() {
-  _saAdvancedOpen = !_saAdvancedOpen;
-  const body = document.getElementById('sa-advanced-body');
-  const btn  = document.getElementById('btn-sa-advanced-toggle');
-  if (body) body.style.display = _saAdvancedOpen ? '' : 'none';
-  if (btn)  btn.textContent = (_saAdvancedOpen ? '▾' : '▸') + ' 경쟁사 분석 & White-Space';
-  // 처음 열 때 현재 선택 품목으로 경쟁사 맵 자동 로드
-  if (_saAdvancedOpen) {
-    try {
-      const pk  = _currentKey || document.getElementById('product-select')?.value || null;
-      const inn = pk ? (INN_MAP[pk] || null) : null;
-      if (pk) loadCompetitorMap({ product_key: pk, target_inn: inn });
-    } catch (_) { /* swallow */ }
-  }
+/**
+ * 사우디 전용: 경쟁사 맵 + White-Space 자동 실행
+ * 1공정 완료(renderResult) 또는 바이어 발굴 완료(_pollP3) 시 호출.
+ */
+function _autoRunSaudiPanels(productKey) {
+  const pk  = productKey || _currentKey || document.getElementById('product-select')?.value || null;
+  if (!pk) return;
+
+  // ① 경쟁사 유통 구도 — 자동 실행
+  try {
+    const inn = INN_MAP[pk] || null;
+    loadCompetitorMap({ product_key: pk, target_inn: inn });
+  } catch (_) { /* swallow */ }
+
+  // ② White-Space 분석 — INN 자동 입력 후 실행
+  try {
+    const rawInn = INN_MAP[pk] || '';
+    const innFirst = rawInn.split(/\s*[\/+]\s*/)[0].trim();
+    if (!innFirst) return;
+    const innEl = document.getElementById('p3-ws-inn');
+    if (innEl) innEl.value = innFirst;
+    const wsCard = document.getElementById('p3-whitespace-card');
+    if (wsCard) wsCard.style.display = '';
+    runP3WhiteSpace();
+  } catch (_) { /* swallow */ }
 }
 
 /**
@@ -1008,8 +1017,8 @@ function renderResult(result, refs, pdfName) {
     // N3: 1공정 완료 → Todo 자동 체크
     markTodoDone('p1');
 
-    // Phase 5: 경쟁사 유통 에이전트 역추적 — 자동 실행 안 함 (사용자가 직접 펼쳐야 함)
-    // loadCompetitorMap() 은 토글 버튼 클릭 시 호출됩니다.
+    // 사우디 전용: 경쟁사 맵 + White-Space 자동 실행
+    try { _autoRunSaudiPanels(result.product_id || result.product_key || null); } catch (_) {}
   }
 
   /* ─ B4: 논문 카드 ─ */
@@ -2512,7 +2521,7 @@ async function _pollP3() {
 
       const rr     = await fetch('/api/buyers/result');
       const result = await rr.json();
-      _p3Buyers  = result.buyers || [];
+      _p3Buyers  = result.items || result.buyers || [];   // 서버는 'items' 반환
       _p3PdfName = result.pdf   || null;
 
       _renderP3Cards(_p3Buyers);
@@ -2521,6 +2530,9 @@ async function _pollP3() {
       if (_p3PdfName) {
         _addReportEntry({ trade_name: '바이어 발굴', inn: null, verdict: '—' }, _p3PdfName, 'p3');
       }
+
+      // 사우디 전용: 바이어 발굴 완료 후 경쟁사 맵 + White-Space 자동 실행
+      try { _autoRunSaudiPanels(null); } catch (_) {}
       const btn  = document.getElementById('btn-p3-run');
       const icon = document.getElementById('p3-run-icon');
       if (btn)  btn.disabled = false;
