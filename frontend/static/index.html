@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 수출 적합성 분석 — UPharma Export AI</title>
   <link rel="stylesheet" href="/static/style.css?v=17"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -16,6 +18,10 @@
       <h1>한국유나이티드제약(주) 해외 영업·마케팅 대시보드</h1>
     </div>
   </div>
+  <nav class="topnav">
+    <button id="tab-preview" class="tab topnav-tab on" onclick="goTab('preview',this)">메인 프리뷰</button>
+    <button id="tab-main"    class="tab topnav-tab"    onclick="goTab('main',this)">시장조사 분석</button>
+  </nav>
   <div class="topbar-r">
     <div class="pill">
       <span class="flag-emoji">🇸🇦</span>
@@ -26,8 +32,54 @@
 
 <main class="main">
 
-  <!-- ════ 메인 ════ -->
-  <div id="main" class="page on">
+  <!-- ════ 메인 프리뷰 ════ -->
+  <div id="preview" class="page on">
+    <div class="sa-preview-page">
+
+      <!-- KPI 카드 4개 -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">국가 GDP</div>
+          <div class="kpi-value">US$ 1.07 Trillion</div>
+          <div class="kpi-src">출처: IMF (2024)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">인구</div>
+          <div class="kpi-value">36,900,000명</div>
+          <div class="kpi-src">2024 · UN</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">의약품 시장 규모</div>
+          <div class="kpi-value">$11.2B</div>
+          <div class="kpi-src">2024 · IQVIA</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">실질 성장률</div>
+          <div class="kpi-value">5.8%</div>
+          <div class="kpi-src">2024 · IMF</div>
+        </div>
+      </div>
+
+      <!-- 지도 + 뉴스 2컬럼 -->
+      <div class="preview-2col">
+        <div class="map-wrap">
+          <span class="kpi-card-title">사우디아라비아 위치</span>
+          <div id="sa-map" class="sg-leaflet-map" style="height:350px;"></div>
+        </div>
+        <div class="market-trends-card">
+          <div class="trends-header">
+            <span class="kpi-card-title">사우디아라비아 의약품 시장 주요 동향</span>
+            <button class="btn-news-refresh" id="btn-news-refresh" onclick="loadNews()">↺ 새로고침</button>
+          </div>
+          <div id="news-list"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════ 시장조사 분석 ════ -->
+  <div id="main" class="page">
     <div class="dashboard-grid">
 
       <!-- ── 왼쪽 컬럼 ── -->
@@ -38,7 +90,10 @@
           <div class="process-header">
             <div class="process-header-l">
               <span class="process-num">01</span>
-              <div class="process-title">수출가격 전략</div>
+              <div>
+                <div class="process-title">수출가격 전략</div>
+                <div class="process-sub">시장조사 분석 → AI 가격 전략 수립 → PDF 보고서</div>
+              </div>
             </div>
           </div>
           <div class="process-body" id="pb-p2">
@@ -239,7 +294,10 @@
           <div class="process-header">
             <div class="process-header-l">
               <span class="process-num">02</span>
-              <div class="process-title">바이어 발굴</div>
+              <div>
+                <div class="process-title">바이어 발굴</div>
+                <div class="process-sub">Perplexity 심층조사 · AI 분석 · Top 바이어 랭킹</div>
+              </div>
             </div>
           </div>
           <div class="process-body" id="pb-p3">

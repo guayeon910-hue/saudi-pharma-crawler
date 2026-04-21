@@ -166,6 +166,32 @@ function goTab(id, el) {
   const tabEl = el || document.getElementById('tab-' + id);
   if (tabEl) tabEl.classList.add('on');
   if (id === 'main') populateP2ReportSelect();
+  if (id === 'preview') _initPreviewPage();
+}
+
+/* ── 메인 프리뷰: Leaflet 지도 + 뉴스 ── */
+let _previewReady = false;
+let _saMap = null;
+
+function _initPreviewPage() {
+  if (_saMap) { _saMap.invalidateSize(); return; }
+  if (typeof L === 'undefined') return;
+  const el = document.getElementById('sa-map');
+  if (!el) return;
+  _saMap = L.map('sa-map', { zoomControl: true }).setView([23.8859, 45.0792], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | © <a href="https://leafletjs.com">Leaflet</a>',
+  }).addTo(_saMap);
+  const icon = L.divIcon({
+    className: '',
+    html: '<div style="width:13px;height:13px;background:#173f78;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 5px rgba(0,0,0,.35);"></div>',
+    iconSize: [13, 13],
+    iconAnchor: [6, 6],
+  });
+  L.marker([24.6877, 46.7219], { icon })
+    .addTo(_saMap)
+    .bindPopup('<b>الرياض · Riyadh</b><br>수도')
+    .openPopup();
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2693,9 +2719,10 @@ function closeBuyerModal(e) {
 
 /** URL 해시 → 페이지 id */
 const _TAB_FROM_HASH = {
-  '':      'main',
-  '#main': 'main',
-  '#rep':  'rep',
+  '':         'preview',
+  '#preview': 'preview',
+  '#main':    'main',
+  '#rep':     'rep',
 };
 
 function initTabFromHash() {

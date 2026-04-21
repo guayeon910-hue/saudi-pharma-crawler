@@ -2484,3 +2484,117 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
   line-height: 1.55;
 }
 .public-private-note strong { font-weight: 700; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   TOP NAV TABS
+══════════════════════════════════════════════════════════════════════ */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+}
+.topnav-tab {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: background .15s, color .15s;
+  letter-spacing: -.01em;
+}
+.topnav-tab:hover { color: var(--navy); }
+.topnav-tab.on { background: var(--navy); color: #fff !important; }
+.topnav-tab.on::after { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   PREVIEW PAGE (메인 프리뷰)
+══════════════════════════════════════════════════════════════════════ */
+.sa-preview-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 0 48px;
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.kpi-card {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: var(--sh);
+  padding: 20px 22px 16px;
+}
+.kpi-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--navy);
+  line-height: 1.2;
+  letter-spacing: -.02em;
+}
+.kpi-src {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 7px;
+}
+.preview-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.map-wrap, .market-trends-card {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: var(--sh);
+  padding: 18px;
+}
+.kpi-card-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-bottom: 12px;
+  display: block;
+}
+.trends-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.trends-header .kpi-card-title { margin-bottom: 0; }
+.btn-news-refresh {
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--bg2);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 11px;
+  cursor: pointer;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.btn-news-refresh:hover { background: rgba(0,0,0,0.09); }
+.process-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  font-weight: 500;
+}
+@media (max-width: 760px) {
+  .kpi-grid     { grid-template-columns: repeat(2,1fr); }
+  .preview-2col { grid-template-columns: 1fr; }
+}
