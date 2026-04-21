@@ -474,13 +474,14 @@ function _buildReportFullBlob(result) {
  * @param {object|null} result  분석 결과
  * @param {string|null} pdfName PDF 파일명
  */
-function _addReportEntry(result, pdfName) {
+function _addReportEntry(result, pdfName, reportType) {
   const prodKey = result ? String(result.product_id || result.trade_name || '') : '';
   const pdfPart = pdfName ? String(pdfName).replace(/^.*[/\\]/, '') : '';
   const fp = `${prodKey}|${pdfPart}`;
   const now = Date.now();
   if (_lastReportDedupe.fp === fp && (now - _lastReportDedupe.t) < 5000) {
     populateP2ReportSelect();
+    _syncP3ReportOptions();
     return;
   }
   _lastReportDedupe = { fp, t: now };
@@ -488,11 +489,12 @@ function _addReportEntry(result, pdfName) {
   const reports = _loadReports();
   const entryId = Date.now();
   const entry   = {
-    id:        entryId,
-    product:   result ? (result.trade_name || result.product_id || '알 수 없음') : '알 수 없음',
-    inn:       result ? (INN_MAP[result.product_id] || result.inn || '') : '',
-    verdict:   result ? (result.verdict || '—') : '—',
-    timestamp: new Date().toLocaleString('ko-KR', {
+    id:          entryId,
+    report_type: reportType || 'p1',
+    product:     result ? (result.trade_name || result.product_id || '알 수 없음') : '알 수 없음',
+    inn:         result ? (INN_MAP[result.product_id] || result.inn || '') : '',
+    verdict:     result ? (result.verdict || '—') : '—',
+    timestamp:   new Date().toLocaleString('ko-KR', {
       month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit',
     }),
@@ -504,6 +506,7 @@ function _addReportEntry(result, pdfName) {
   localStorage.setItem(REPORTS_LS_KEY, JSON.stringify(trimmed));
   _saveReportFull(entryId, result, trimmed.map(r => r.id));
   renderReportTab();
+  _syncP3ReportOptions();
 }
 
 /** 보고서 탭 DOM 갱신 */
@@ -1056,7 +1059,7 @@ function renderResult(result, refs, pdfName) {
     // N3: 보고서 완료 → Todo 자동 체크
     markTodoDone('rep');
     // N4: 보고서 탭에 자동 등록
-    _addReportEntry(result, pdfName);
+    _addReportEntry(result, pdfName, 'p1');
     populateP2ReportSelect();
   } else {
     _showReportError();
@@ -2423,7 +2426,7 @@ let _p3SelectedReportId = '';
 function _syncP3ReportOptions() {
   const sel = document.getElementById('p3-report-select');
   if (!sel) return;
-  const p1Reports = _loadReports().filter(r => r.report_type === 'p1');
+  const p1Reports = _loadReports().filter(r => !r.report_type || r.report_type === 'p1');
   sel.innerHTML = ['<option value="">시장조사 보고서를 선택하세요</option>']
     .concat(p1Reports.map(r => {
       const name = r.product || r.report_title || '보고서';
