@@ -300,39 +300,6 @@
     <!-- ── 사우디 전용 패널: 분석 완료 시 자동 표시, 2컬럼 그리드 아래 전폭 ── -->
     <div class="sa-panels-wrap">
 
-      <!-- Phase 5: 경쟁사 유통 구도 -->
-      <div class="competitor-map-card" id="competitor-map-card" style="display:none;">
-        <div class="cm-header">
-          <div class="p3-ws-title">경쟁사 유통 구도</div>
-          <div class="cm-sub">SFDA 등록 데이터 기준 · 사우디 시장 점유 분포</div>
-        </div>
-        <div class="cm-status" id="cm-status" style="display:none;"></div>
-        <div class="cm-summary" id="cm-summary" style="display:none;"></div>
-        <div class="cm-list" id="cm-list" style="display:none;"></div>
-      </div>
-
-      <!-- Phase 3: White-Space 분석 -->
-      <div class="p3-whitespace-card" id="p3-whitespace-card" style="display:none;">
-        <div class="p3-ws-header">
-          <div>
-            <div class="p3-ws-title">빈틈(White-Space) 분석</div>
-            <div class="p3-ws-sub">SFDA·NUPCO 미취급 ATC 코드 발굴 · Tender Power 점수 포함</div>
-          </div>
-        </div>
-        <div class="p3-ws-form">
-          <input type="text" id="p3-ws-inn" class="p3-input" placeholder="성분명 (예: rosuvastatin)">
-          <input type="text" id="p3-ws-atc" class="p3-input p3-ws-atc" placeholder="ATC (예: C10AA)">
-          <input type="number" id="p3-ws-min" class="p3-input p3-ws-min" placeholder="최소 점수" value="50" min="0" max="100">
-          <button class="btn-analyze" id="p3-ws-btn" onclick="runP3WhiteSpace()">🔍 빈틈 분석</button>
-        </div>
-        <div id="p3-ws-loading" class="p1-simple-loading" style="display:none;margin-top:10px;">
-          <span class="report-loading-spinner"></span>
-          <span style="font-size:12px;color:var(--muted);">분석 중…</span>
-        </div>
-        <div class="p3-ws-summary" id="p3-ws-summary" style="display:none;"></div>
-        <div class="p3-ws-results" id="p3-ws-results" style="display:none;"></div>
-      </div>
-
     </div><!-- /sa-panels-wrap -->
 
   </div><!-- /main page -->
