@@ -180,4 +180,14 @@ def generate_final_report(
     output_path = out_dir / filename
     doc.save(str(output_path))
     logger.info("Final report saved: %s", output_path)
-    return output_path
+
+    # DOCX → PDF 변환
+    pdf_path = output_path.with_suffix(".pdf")
+    try:
+        from docx2pdf import convert
+        convert(str(output_path), str(pdf_path))
+        logger.info("Final PDF saved: %s", pdf_path)
+        return pdf_path
+    except Exception as exc:
+        logger.warning("PDF 변환 실패, DOCX 반환: %s", exc)
+        return output_path

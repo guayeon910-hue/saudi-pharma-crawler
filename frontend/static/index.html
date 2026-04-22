@@ -514,7 +514,7 @@ function downloadCombinedReport() {
     .then(function(blob) {
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
-      a.href = url; a.download = 'combined_report.docx'; a.click();
+      a.href = url; a.download = 'combined_report.pdf'; a.click();
       URL.revokeObjectURL(url);
       var reports = JSON.parse(localStorage.getItem('sa_upharma_reports_v1') || '[]');
       var latestP1 = reports.find(function(r) { return r.report_type === 'p1'; });

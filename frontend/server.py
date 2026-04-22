@@ -2883,11 +2883,17 @@ async def get_combined_report():
     if not reports_dir.exists():
         raise HTTPException(404, "reports 디렉터리 없음")
 
-    # sa_ 접두사 우선, 없으면 전체
+    # sa_final PDF 우선 → sa_final DOCX → sa_*.docx → market_report_*.docx
+    pdf_files = sorted(reports_dir.glob("sa_final*.pdf"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if pdf_files:
+        latest = pdf_files[0]
+        if not latest.resolve().is_relative_to(reports_dir.resolve()):
+            raise HTTPException(403, "접근 거부")
+        return FileResponse(latest, media_type="application/pdf", filename=latest.name)
+
     files = sorted(reports_dir.glob("sa_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
     if not files:
         files = sorted(reports_dir.glob("*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
-
     if not files:
         raise HTTPException(404, "보고서 파일 없음")
 
