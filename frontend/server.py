@@ -77,6 +77,9 @@ _report_cache: dict = {
     "latest_pdf": None,
 }
 
+_p2_report_cache: dict = {"latest": None}
+_p3_report_cache: dict = {"latest": None}
+
 # 레지스트리 + 클라이언트 (lazy)
 _registry = DrugRegistry()
 _llm_client = None
@@ -2508,6 +2511,15 @@ async def api_p2_price_analyze(
         )
     if not result.get("ok"):
         return JSONResponse(status_code=400, content=result)
+
+    # P2 보고서 자동 생성
+    try:
+        from report_generator_p2 import generate_p2_report
+        p2_path = await asyncio.to_thread(generate_p2_report, dict(result), ROOT / "reports")
+        _p2_report_cache["latest"] = p2_path.name
+    except Exception:
+        logger.exception("P2 보고서 자동 생성 실패")
+
     return result
 
 
@@ -2662,6 +2674,13 @@ async def buyers_run(req: BuyersRunRequest):
                 "status": "done",
                 "result": {"ok": True, "count": len(merged), "items": merged},
             })
+            # P3 보고서 자동 생성
+            try:
+                from report_generator_p3 import generate_p3_report
+                p3_path = generate_p3_report(merged, trade_name or ingredients, ROOT / "reports")
+                _p3_report_cache["latest"] = p3_path.name
+            except Exception:
+                logger.exception("P3 보고서 자동 생성 실패")
         except Exception as exc:
             logger.warning("Buyers run 실패: %s", exc)
             _buyer_task.update({"status": "error", "error": str(exc)[:200]})
@@ -2688,6 +2707,101 @@ async def buyers_result():
         err = _buyer_task.get("error", "결과 없음")
         raise HTTPException(404, err)
     return result
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# P2 / P3 보고서 다운로드 + 최종 합본 생성
+# ───────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/p2/report/download")
+async def p2_report_download(filename: Optional[str] = None):
+    """SA_02 수출가격전략 DOCX 다운로드."""
+    reports_dir = ROOT / "reports"
+    if filename:
+        target = reports_dir / filename
+        if not target.is_file() or not target.is_relative_to(reports_dir):
+            raise HTTPException(404, "파일을 찾을 수 없습니다.")
+        return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+
+    cached = _p2_report_cache.get("latest")
+    if cached:
+        target = reports_dir / cached
+        if target.is_file():
+            return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+
+    candidates = sorted(reports_dir.glob("sa_02_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise HTTPException(404, "SA_02 보고서가 없습니다. P2 가격 분석을 먼저 실행하세요.")
+    return FileResponse(str(candidates[0]), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=candidates[0].name)
+
+
+@app.get("/api/p3/report/download")
+async def p3_report_download(filename: Optional[str] = None):
+    """SA_03 바이어리스트 DOCX 다운로드."""
+    reports_dir = ROOT / "reports"
+    if filename:
+        target = reports_dir / filename
+        if not target.is_file() or not target.is_relative_to(reports_dir):
+            raise HTTPException(404, "파일을 찾을 수 없습니다.")
+        return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+
+    cached = _p3_report_cache.get("latest")
+    if cached:
+        target = reports_dir / cached
+        if target.is_file():
+            return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+
+    candidates = sorted(reports_dir.glob("sa_03_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise HTTPException(404, "SA_03 보고서가 없습니다. 바이어 발굴을 먼저 실행하세요.")
+    return FileResponse(str(candidates[0]), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=candidates[0].name)
+
+
+class FinalReportRequest(BaseModel):
+    trade_name: Optional[str] = None
+    inn: Optional[str] = None
+    hs_code: Optional[str] = None
+    dosage_form: Optional[str] = None
+    strength: Optional[str] = None
+    p1_filename: Optional[str] = None
+    p2_filename: Optional[str] = None
+    p3_filename: Optional[str] = None
+
+
+@app.post("/api/report/final")
+async def report_final(req: FinalReportRequest):
+    """SA_최종 합본 DOCX 생성 후 다운로드."""
+    from report_generator_final import generate_final_report
+
+    reports_dir = ROOT / "reports"
+
+    def _latest(pattern: str) -> Optional[Path]:
+        files = sorted(reports_dir.glob(pattern), key=lambda f: f.stat().st_mtime, reverse=True)
+        return files[0] if files else None
+
+    p1_path = (reports_dir / req.p1_filename) if req.p1_filename else _latest("market_report_*.docx") or _latest("sa_01_*.docx")
+    p2_path = (reports_dir / req.p2_filename) if req.p2_filename else _latest("sa_02_*.docx")
+    p3_path = (reports_dir / req.p3_filename) if req.p3_filename else _latest("sa_03_*.docx")
+
+    meta = {
+        "trade_name":   req.trade_name or "",
+        "inn":          req.inn or "",
+        "hs_code":      req.hs_code or "",
+        "dosage_form":  req.dosage_form or "",
+        "strength":     req.strength or "",
+    }
+
+    try:
+        output_path = await asyncio.to_thread(generate_final_report, p1_path, p2_path, p3_path, meta, reports_dir)
+    except Exception as exc:
+        logger.exception("최종 합본 생성 실패")
+        raise HTTPException(500, f"최종 합본 생성 실패: {exc}")
+
+    return FileResponse(
+        str(output_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=output_path.name,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

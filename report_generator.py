@@ -20,6 +20,14 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from _report_styles import (
+    COLORS,
+    FONTS,
+    apply_page_margins,
+    set_cell_shading as _set_cell_shading,
+    set_header_footer,
+    verdict_cell,
+)
 from report_refine import (
     aggregate_evidence_by_source,
     count_procurement_vs_retail,
@@ -56,14 +64,6 @@ REFERENCE_SITE_CATEGORIES_KSA: dict[str, list[str]] = {
     ],
 }
 
-
-def _set_cell_shading(cell, fill_hex: str) -> None:
-    tc = cell._tc
-    tc_pr = tc.get_or_add_tcPr()
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:fill"), fill_hex)
-    shd.set(qn("w:val"), "clear")
-    tc_pr.append(shd)
 
 
 def _add_table_row(table, cells_data: list[str], bold_first: bool = False) -> None:
@@ -190,8 +190,13 @@ def generate_report(
 
     doc = Document()
     style = doc.styles["Normal"]
-    style.font.name = "Malgun Gothic"
+    style.font.name = FONTS["ko"]
     style.font.size = Pt(10)
+
+    # 페이지 여백 (SG 본문 양식)
+    section = doc.sections[0]
+    apply_page_margins(section, cover=False)
+    set_header_footer(section, company, trade_name, date_line)
 
     # ── 표지 헤더 ──
     p = doc.add_paragraph()
@@ -199,40 +204,48 @@ def generate_report(
     r = p.add_run(company)
     r.bold = True
     r.font.size = Pt(11)
+    r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
     doc.add_paragraph("")
     title_p = doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = title_p.add_run(report_title)
     r.bold = True
-    r.font.size = Pt(22)
-    r.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+    r.font.size = Pt(28)
+    r.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
+
+    sub_p = doc.add_paragraph()
+    sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sr2 = sub_p.add_run(f"{trade_name} — {ingredient}")
+    sr2.font.size = Pt(18)
+    sr2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
 
     date_p = doc.add_paragraph()
     date_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    date_p.add_run(date_line).font.size = Pt(11)
+    dr = date_p.add_run(date_line)
+    dr.font.size = Pt(12)
+    dr.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    # 제품 상세 정보줄 (메타 바 대체)
+    meta_p = doc.add_paragraph()
+    meta_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    meta_parts = []
+    if strength or dosage_form:
+        meta_parts.append(f"{strength} {dosage_form}".strip())
+    if hs_s:
+        meta_parts.append(f"HS {hs_s}")
+    if case_s:
+        meta_parts.append(case_s)
+    if conf:
+        meta_parts.append(f"신뢰도 {conf:.0%}")
+    mr2 = meta_p.add_run("  |  ".join(meta_parts))
+    mr2.font.size = Pt(12)
+    mr2.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
 
     sep = doc.add_paragraph()
     sep.paragraph_format.space_after = Pt(6)
     p_sep = sep.add_run("—" * 42)
     p_sep.font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
-
-    # 메타데이터 바 (짙은 배경)
-    meta_line = (
-        f"{trade_name} — {ingredient} | {strength} {dosage_form} | "
-        f"{hs_s or '-'} | {case_s or '-'} | confidence {conf:.2f}"
-    )
-    meta_table = doc.add_table(rows=1, cols=1)
-    meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    meta_table.autofit = True
-    c0 = meta_table.rows[0].cells[0]
-    _set_cell_shading(c0, "2D2D2D")
-    c0.text = ""
-    mp = c0.paragraphs[0]
-    mp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    mr = mp.add_run(meta_line)
-    mr.font.size = Pt(9)
-    mr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 
     doc.add_paragraph("")
 
@@ -241,14 +254,17 @@ def generate_report(
     sec1.style = "Table Grid"
     h1 = sec1.rows[0].cells[0].merge(sec1.rows[0].cells[1])
     h1.text = ""
-    h1.paragraphs[0].add_run("1. 진출 적합 판정").bold = True
-    _set_cell_shading(h1, "E8ECF0")
+    hp1 = h1.paragraphs[0]
+    r_h1 = hp1.add_run("1. 진출 적합 판정")
+    r_h1.bold = True
+    r_h1.font.size = Pt(14)
+    r_h1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_shading(h1, COLORS["navy"])
     sec1.rows[1].cells[0].text = "판정"
-    sec1.rows[1].cells[1].text = verdict_ko
-    for cell in sec1.rows[1].cells:
-        for para in cell.paragraphs:
-            for run in para.runs:
-                run.font.size = Pt(10)
+    verdict_cell(sec1.rows[1].cells[1], verdict_ko)
+    for para in sec1.rows[1].cells[0].paragraphs:
+        for run in para.runs:
+            run.font.size = Pt(10)
     doc.add_paragraph("")
 
     # 2. 판정 근거 (1~5)
@@ -263,8 +279,11 @@ def generate_report(
     t2.style = "Table Grid"
     t2.rows[0].cells[0].merge(t2.rows[0].cells[2])
     t2.rows[0].cells[0].text = ""
-    t2.rows[0].cells[0].paragraphs[0].add_run("2. 판정 근거").bold = True
-    _set_cell_shading(t2.rows[0].cells[0], "E8ECF0")
+    r_t2 = t2.rows[0].cells[0].paragraphs[0].add_run("2. 판정 근거")
+    r_t2.bold = True
+    r_t2.font.size = Pt(14)
+    r_t2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_shading(t2.rows[0].cells[0], COLORS["navy"])
 
     for i, (num, label, key) in enumerate(labels, start=1):
         row = t2.rows[i]
@@ -285,8 +304,11 @@ def generate_report(
     t3.rows[0].cells[0].merge(t3.rows[0].cells[1])
     t3.rows[0].cells[0].text = ""
     sp = t3.rows[0].cells[0].paragraphs[0]
-    sp.add_run("3. 시장 진출 전략").bold = True
-    _set_cell_shading(t3.rows[0].cells[0], "E8ECF0")
+    r_t3 = sp.add_run("3. 시장 진출 전략")
+    r_t3.bold = True
+    r_t3.font.size = Pt(14)
+    r_t3.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    _set_cell_shading(t3.rows[0].cells[0], COLORS["navy"])
 
     for i, (title, body) in enumerate(strat_rows, start=1):
         t3.rows[i].cells[0].text = title
@@ -306,11 +328,16 @@ def generate_report(
     # 4. 근거 및 출처
     doc.add_paragraph()
     h4 = doc.add_paragraph()
-    h4.add_run("4. 근거 및 출처").bold = True
-    h4.runs[0].font.size = Pt(12)
+    r_h4 = h4.add_run("4. 근거 및 출처")
+    r_h4.bold = True
+    r_h4.font.size = Pt(14)
+    r_h4.font.color.rgb = RGBColor(0x1B, 0x3A, 0x6B)
 
     sub = doc.add_paragraph()
-    sub.add_run("참조 데이터").bold = True
+    r_sub = sub.add_run("참조 데이터")
+    r_sub.bold = True
+    r_sub.font.size = Pt(12)
+    r_sub.font.color.rgb = RGBColor(0x1B, 0x3A, 0x6B)
 
     ev_rows = aggregate_evidence_by_source(
         source_results if isinstance(source_results, list) else []
@@ -319,8 +346,13 @@ def generate_report(
     ev_table.style = "Table Grid"
     ev_headers = ["출처", "건수", "신뢰도(평균)"]
     for i, h in enumerate(ev_headers):
-        ev_table.rows[0].cells[i].text = h
-        _set_cell_shading(ev_table.rows[0].cells[i], "DDE5F0")
+        c = ev_table.rows[0].cells[i]
+        c.text = ""
+        r_ev = c.paragraphs[0].add_run(h)
+        r_ev.bold = True
+        r_ev.font.size = Pt(10)
+        r_ev.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        _set_cell_shading(c, COLORS["navy"])
     if ev_rows:
         for j, er in enumerate(ev_rows, start=1):
             ev_table.rows[j].cells[0].text = str(er["source"])
@@ -444,7 +476,7 @@ def generate_report(
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
     fr = footer.add_run(f"Saudi Pharma Crawler | {timestamp}")
     fr.font.size = Pt(8)
-    fr.font.color.rgb = RGBColor(0x94, 0xA3, 0xB8)
+    fr.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
     filename = f"market_report_{drug_id}_{date_str}.docx"
     output_path = REPORTS_DIR / filename
