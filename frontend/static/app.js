@@ -449,6 +449,15 @@ function _saveReportsFull(map) {
   catch (e) { console.warn('보고서 full blob 저장 실패:', e); }
 }
 
+function clearAllReports() {
+  if (!confirm('저장된 보고서 목록을 모두 지우시겠습니까?\n(실제 파일은 서버에서 삭제되지 않습니다)')) return;
+  localStorage.removeItem(REPORTS_LS_KEY);
+  localStorage.removeItem(REPORTS_FULL_LS_KEY);
+  renderReportTab();
+  _syncP3ReportOptions();
+  populateP2ReportSelect();
+}
+
 /**
  * 2공정 파이프라인이 실제로 사용할 최소 full blob.
  * result 전체를 그대로 저장하면 용량이 크므로 필요한 필드만 뽑는다.
