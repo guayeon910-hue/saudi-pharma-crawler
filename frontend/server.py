@@ -2883,28 +2883,35 @@ async def get_combined_report():
     if not reports_dir.exists():
         raise HTTPException(404, "reports 디렉터리 없음")
 
-    # sa_final PDF 우선 → sa_final DOCX → sa_*.docx → market_report_*.docx
-    pdf_files = sorted(reports_dir.glob("sa_final*.pdf"), key=lambda f: f.stat().st_mtime, reverse=True)
-    if pdf_files:
-        latest = pdf_files[0]
-        if not latest.resolve().is_relative_to(reports_dir.resolve()):
-            raise HTTPException(403, "접근 거부")
-        return FileResponse(latest, media_type="application/pdf", filename=latest.name)
+    from report_generator_final import generate_final_report
 
-    files = sorted(reports_dir.glob("sa_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
-    if not files:
-        files = sorted(reports_dir.glob("*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
-    if not files:
-        raise HTTPException(404, "보고서 파일 없음")
+    reports_dir.mkdir(parents=True, exist_ok=True)
 
-    latest = files[0]
-    if not latest.resolve().is_relative_to(reports_dir.resolve()):
+    def _latest(pattern: str):
+        files = sorted(reports_dir.glob(pattern), key=lambda f: f.stat().st_mtime, reverse=True)
+        return files[0] if files else None
+
+    p1_path = _latest("market_report_*.docx") or _latest("sa_01_*.docx")
+    p2_path = _latest("sa_02_*.docx")
+    p3_path = _latest("sa_03_*.docx")
+
+    if not p1_path and not p2_path and not p3_path:
+        raise HTTPException(404, "생성된 보고서가 없습니다. 먼저 1공정 분석을 실행하세요.")
+
+    try:
+        output_path = await asyncio.to_thread(
+            generate_final_report, p1_path, p2_path, p3_path, {}, reports_dir
+        )
+    except Exception as exc:
+        logger.exception("최종 보고서 생성 실패")
+        raise HTTPException(500, f"보고서 생성 실패: {exc}")
+
+    if not output_path.resolve().is_relative_to(reports_dir.resolve()):
         raise HTTPException(403, "접근 거부")
-    return FileResponse(
-        latest,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=latest.name,
-    )
+
+    media = "application/pdf" if output_path.suffix == ".pdf" else \
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return FileResponse(output_path, media_type=media, filename=output_path.name)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
