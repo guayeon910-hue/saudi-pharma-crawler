@@ -389,6 +389,11 @@ const REPORTS_FULL_LS_KEY = 'sa_upharma_reports_full_v1';
 let _lastReportDedupe = { fp: '', t: 0 };
 
 let _p2LastRequestState = null;
+let _p2LastScenarios = null;
+let _p2LastExchange  = {};
+let _p2LastStats     = {};
+let _p2ActiveCol     = null;
+let _p2ModalOpts     = { agg: null, avg: null, cons: null };
 let _p2OverrideTimer = null;
 let _p2Running = false;
 
@@ -1621,6 +1626,12 @@ function renderP2Result(data) {
     { key: 'conservative', col: 'cons' },
   ];
 
+  _p2LastScenarios = {};
+  _p2LastExchange = data.exchange_rates || {};
+  _p2LastStats = stats;
+  for (const { key, col } of pairs) _p2LastScenarios[col] = scenarios[key] || {};
+  _p2ModalOpts = { agg: null, avg: null, cons: null };
+
   for (const { key, col } of pairs) {
     const sc = scenarios[key] || {};
     const priceEl = document.getElementById(`p2c-price-${col}`);
@@ -1744,6 +1755,212 @@ function renderP2Result(data) {
   }
 
   sec.style.display = '';
+}
+
+/* ── P2 역산·옵션 편집 모달 ─────────────────────────────────── */
+const P2_COL_TITLES = { agg: '저가 진입', avg: '기준가', cons: '프리미엄' };
+const P2_OPT_TYPES = {
+  pct_deduct: '% 차감',
+  pct_add:    '% 가산',
+  multiply:   '× 배수',
+  divide:     '÷ 나누기',
+  abs_add:    'SAR 가산',
+  abs_deduct: 'SAR 차감',
+  usd_add:    'USD 가산',
+  usd_deduct: 'USD 차감',
+};
+
+function _p2SarPerUsd() {
+  const fx = _p2LastExchange || {};
+  if (fx.sar_usd && Number(fx.sar_usd) > 0) return 1 / Number(fx.sar_usd);
+  const sc = (_p2LastScenarios && _p2LastScenarios.avg) || {};
+  if (sc.fob_sar && sc.fob_usd && sc.fob_usd > 0) return Number(sc.fob_sar) / Number(sc.fob_usd);
+  return 3.75;
+}
+
+function _p2UsdPerKrw() {
+  const fx = _p2LastExchange || {};
+  if (fx.usd_krw && Number(fx.usd_krw) > 0) return Number(fx.usd_krw);
+  const sc = (_p2LastScenarios && _p2LastScenarios.avg) || {};
+  if (sc.fob_usd && sc.fob_krw && sc.fob_usd > 0) return Number(sc.fob_krw) / Number(sc.fob_usd);
+  return 1380;
+}
+
+function _p2DefaultOptsForCol(col) {
+  const feeInp = document.getElementById(`p2ci-fee-${col}`);
+  const frInp  = document.getElementById(`p2ci-freight-${col}`);
+  const feeDefault = { agg: 3, avg: 5, cons: 10 }[col] ?? 5;
+  const frDefault  = { agg: 0.85, avg: 1.0, cons: 1.2 }[col] ?? 1.0;
+  const feeVal = feeInp && feeInp.value !== '' ? Number(feeInp.value) : feeDefault;
+  const frVal  = frInp  && frInp.value  !== '' ? Number(frInp.value)  : frDefault;
+  return [
+    { name: '에이전트 수수료', type: 'pct_deduct', value: feeVal, locked: 'fee' },
+    { name: '운임 배수',       type: 'multiply',   value: frVal,  locked: 'freight' },
+  ];
+}
+
+function _p2RefUsdForCol(col) {
+  const sc = (_p2LastScenarios && _p2LastScenarios[col]) || {};
+  if (sc.retail_sar != null) return Number(sc.retail_sar) / _p2SarPerUsd();
+  const median = Number(_p2LastStats?.median);
+  if (Number.isFinite(median) && median > 0) return median / _p2SarPerUsd();
+  return null;
+}
+
+function openP2EditModal(col) {
+  if (!_p2LastScenarios || !_p2LastScenarios[col]) return;
+  _p2ActiveCol = col;
+
+  const titleEl = document.getElementById('p2em-title');
+  if (titleEl) {
+    const market = _p2Market === 'public' ? '공공 시장' : '민간 시장';
+    titleEl.textContent = `${P2_COL_TITLES[col] || col} — 역산 · 옵션 편집 [${market}]`;
+  }
+
+  const refUsd = _p2RefUsdForCol(col);
+  const refSar = refUsd != null ? refUsd * _p2SarPerUsd() : null;
+  const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const refMainEl = document.getElementById('p2em-ref-sgd');
+  const refUsdEl  = document.getElementById('p2em-ref-usd');
+  if (refMainEl) refMainEl.textContent = refSar != null ? fmt(refSar) : '—';
+  if (refUsdEl)  refUsdEl.textContent  = refUsd != null ? fmt(refUsd) : '—';
+
+  const baseInp = document.getElementById('p2em-base');
+  if (baseInp) baseInp.value = refUsd != null ? refUsd.toFixed(2) : '';
+
+  if (!_p2ModalOpts[col]) _p2ModalOpts[col] = _p2DefaultOptsForCol(col);
+  _p2RenderModalOpts();
+  _p2UpdateModalResult();
+
+  const overlay = document.getElementById('p2-edit-overlay');
+  if (overlay) overlay.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeP2EditModal(e) {
+  if (e && e.target && e.target.id !== 'p2-edit-overlay' && !(e.target.classList && e.target.classList.contains('buyer-modal-close'))) {
+    return;
+  }
+  const overlay = document.getElementById('p2-edit-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function _p2RenderModalOpts() {
+  const col = _p2ActiveCol;
+  const host = document.getElementById('p2em-opts');
+  if (!col || !host) return;
+  const opts = _p2ModalOpts[col] || [];
+  host.innerHTML = opts.map((o, i) => {
+    const typeOpts = Object.entries(P2_OPT_TYPES).map(([k, label]) =>
+      `<option value="${k}"${k === o.type ? ' selected' : ''}>${_escHtml(label)}</option>`
+    ).join('');
+    return `
+      <div class="p2c-opt-row">
+        <span class="p2c-opt-name">${_escHtml(o.name)}</span>
+        <select class="p2c-opt-type-select" onchange="onP2ModalOptTypeChange(${i}, this)">${typeOpts}</select>
+        <input class="p2c-opt-val" type="number" step="0.01" value="${Number(o.value)}" oninput="onP2ModalOptValueChange(${i}, this)">
+        <button class="p2c-opt-del" onclick="deleteP2ModalOption(${i})" aria-label="삭제">×</button>
+      </div>`;
+  }).join('');
+}
+
+function onP2ModalOptValueChange(idx, el) {
+  const col = _p2ActiveCol;
+  if (!col || !_p2ModalOpts[col] || !_p2ModalOpts[col][idx]) return;
+  const v = Number(el.value);
+  _p2ModalOpts[col][idx].value = Number.isFinite(v) ? v : 0;
+  _p2UpdateModalResult();
+  _p2SyncHiddenInputs(col);
+}
+
+function onP2ModalOptTypeChange(idx, el) {
+  const col = _p2ActiveCol;
+  if (!col || !_p2ModalOpts[col] || !_p2ModalOpts[col][idx]) return;
+  _p2ModalOpts[col][idx].type = el.value;
+  _p2ModalOpts[col][idx].locked = null;
+  _p2UpdateModalResult();
+}
+
+function deleteP2ModalOption(idx) {
+  const col = _p2ActiveCol;
+  if (!col || !_p2ModalOpts[col]) return;
+  _p2ModalOpts[col].splice(idx, 1);
+  _p2RenderModalOpts();
+  _p2UpdateModalResult();
+  _p2SyncHiddenInputs(col);
+}
+
+function confirmP2ModalOption() {
+  const col = _p2ActiveCol;
+  if (!col) return;
+  const nameEl = document.getElementById('p2em-newname');
+  const typeEl = document.getElementById('p2em-newtype');
+  const valEl  = document.getElementById('p2em-newval');
+  const name = (nameEl?.value || '').trim();
+  const type = typeEl?.value || 'pct_deduct';
+  const val  = Number(valEl?.value);
+  if (!name || !Number.isFinite(val)) return;
+  if (!_p2ModalOpts[col]) _p2ModalOpts[col] = [];
+  _p2ModalOpts[col].push({ name, type, value: val });
+  if (nameEl) nameEl.value = '';
+  if (valEl)  valEl.value  = '';
+  _p2RenderModalOpts();
+  _p2UpdateModalResult();
+}
+
+function recalcP2ColModal() {
+  _p2UpdateModalResult();
+}
+
+function _p2SyncHiddenInputs(col) {
+  const opts = _p2ModalOpts[col] || [];
+  const feeOpt = opts.find(o => o.locked === 'fee');
+  const frOpt  = opts.find(o => o.locked === 'freight');
+  const feeInp = document.getElementById(`p2ci-fee-${col}`);
+  const frInp  = document.getElementById(`p2ci-freight-${col}`);
+  if (feeInp && feeOpt) feeInp.value = String(feeOpt.value);
+  if (frInp  && frOpt)  frInp.value  = String(frOpt.value);
+}
+
+function _p2UpdateModalResult() {
+  const col = _p2ActiveCol;
+  const resEl = document.getElementById('p2em-result');
+  const baseInp = document.getElementById('p2em-base');
+  if (!col || !resEl || !baseInp) return;
+
+  let usd = Number(baseInp.value);
+  if (!Number.isFinite(usd) || usd <= 0) {
+    resEl.textContent = '—';
+    return;
+  }
+  const sarPerUsd = _p2SarPerUsd();
+  const opts = _p2ModalOpts[col] || [];
+  for (const o of opts) {
+    const v = Number(o.value);
+    if (!Number.isFinite(v)) continue;
+    switch (o.type) {
+      case 'pct_deduct':  usd *= (1 - v / 100); break;
+      case 'pct_add':     usd *= (1 + v / 100); break;
+      case 'multiply':    usd *= v; break;
+      case 'divide':      if (v !== 0) usd /= v; break;
+      case 'abs_add':     usd += v / sarPerUsd; break;
+      case 'abs_deduct':  usd -= v / sarPerUsd; break;
+      case 'usd_add':     usd += v; break;
+      case 'usd_deduct':  usd -= v; break;
+    }
+  }
+  const sar = usd * sarPerUsd;
+  const krw = usd * _p2UsdPerKrw();
+  const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  resEl.textContent = `${fmt(usd)} USD · ${fmt(sar)} SAR`;
+
+  const priceEl = document.getElementById(`p2c-price-${col}`);
+  const subEl   = document.getElementById(`p2c-sub-${col}`);
+  if (priceEl) priceEl.textContent = fmt(sar);
+  if (subEl) {
+    subEl.textContent = `${fmt(usd)} USD · ${Number(krw).toLocaleString('ko-KR', { maximumFractionDigits: 0 })} KRW`;
+  }
 }
 
 async function _submitP2Analysis({ useLastState = false, overrides = null } = {}) {
