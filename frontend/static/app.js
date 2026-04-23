@@ -154,19 +154,23 @@ function _autoRunSaudiPanels(productKey) {
 }
 
 /**
- * 탭 전환: 모든 .page / .tab 비활성 후 대상만 활성화.
+ * 탭 전환: 모든 .page / 탭 버튼 비활성 후 대상만 활성화.
  * @param {string} id  — 대상 페이지 element ID
  * @param {Element} el — 클릭된 탭 element
  */
 function goTab(id, el) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.tab, .topbar-tab').forEach(t => t.classList.remove('on'));
   const page = document.getElementById(id);
   if (page) page.classList.add('on');
   const tabEl = el || document.getElementById('tab-' + id);
   if (tabEl) tabEl.classList.add('on');
   if (id === 'main') populateP2ReportSelect();
   if (id === 'preview') _initPreviewPage();
+}
+
+function goPreviewTab(id, el) {
+  goTab(id, el);
 }
 
 /* ── 메인 프리뷰: Leaflet 지도 + 뉴스 ── */
@@ -176,9 +180,11 @@ let _saMap = null;
 function _initPreviewPage() {
   if (_saMap) { _saMap.invalidateSize(); return; }
   if (typeof L === 'undefined') return;
-  const el = document.getElementById('sa-map');
+  const mapId = document.getElementById('preview-map') ? 'preview-map' : 'sa-map';
+  const el = document.getElementById(mapId);
   if (!el) return;
-  _saMap = L.map('sa-map', { zoomControl: true }).setView([23.8859, 45.0792], 5);
+  if (el.offsetWidth === 0) { setTimeout(_initPreviewPage, 200); return; }
+  _saMap = L.map(mapId, { zoomControl: true }).setView([23.8859, 45.0792], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | © <a href="https://leafletjs.com">Leaflet</a>',
   }).addTo(_saMap);
@@ -1197,6 +1203,39 @@ function _escHtml(s) {
    데이터 소스: Supabase `ai_discovered_sources` 테이블 (country=SA)
    폴백: SFDA / Vision 2030 정적 링크 (server.py)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+async function loadPreviewNews() {
+  const listEl = document.getElementById('preview-news-list');
+  const btn    = document.getElementById('btn-preview-news-refresh');
+  if (!listEl) return loadNews();
+  if (btn) btn.disabled = true;
+  listEl.innerHTML = '<div class="pvnews-loading">뉴스 로드 중…</div>';
+
+  try {
+    const res  = await fetch('/api/news');
+    const data = await res.json();
+
+    if (!data.ok || !data.items?.length) {
+      listEl.innerHTML = `<div class="pvnews-empty">${data.error || '뉴스를 불러올 수 없습니다.'}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = data.items.map(item => {
+      const href   = item.link ? `href="${_escHtml(item.link)}" target="_blank" rel="noopener"` : '';
+      const tag    = item.link ? 'a' : 'div';
+      const source = [item.source, item.date].filter(Boolean).join(' · ');
+      return `<${tag} class="pvnews-item" ${href}>
+        <div class="pvnews-title">${_escHtml(item.title)}</div>
+        ${source ? `<div class="pvnews-source">${_escHtml(source)}</div>` : ''}
+      </${tag}>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="pvnews-empty">뉴스 조회 실패 — 잠시 후 다시 시도해 주세요.</div>';
+    console.warn('뉴스 로드 실패:', e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 async function loadNews() {
   const listEl = document.getElementById('news-list');
@@ -2966,7 +3005,7 @@ loadMacro();               // 거시지표 (§2)
 loadKeyStatus();           // §6: API 키 배지
 loadExchange();            // §3: 환율 즉시 로드
 renderReportTab();         // §5: 보고서 탭 초기 렌더
-loadNews();                // §11: 뉴스 즉시 로드
+loadPreviewNews();         // §11: 프리뷰 뉴스 즉시 로드
 populateP2ReportSelect();
 initP2Dropzone();
 _bindP2Inputs();

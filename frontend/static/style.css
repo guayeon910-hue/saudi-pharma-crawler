@@ -113,7 +113,7 @@ body {
   font-weight: 800;
   font-size: 13px;
 }
-.flag-emoji { font-size: 22px; line-height: 1; }
+.flag-img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; display: block; flex-shrink: 0; }
 
 /* ── 4. 내비게이션 탭 ────────────────────────────────────────────────────── */
 .main {
@@ -918,15 +918,22 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
   letter-spacing: -.04em;
   line-height: 1;
 }
-.p2-seg-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-.p2-seg-btn {
-  height: 34px; padding: 0 12px; border-radius: 10px;
-  background: rgba(23,63,120,.08); color: var(--navy);
-  font-size: 12px; font-weight: 800; cursor: pointer;
-  transition: background .15s; font-family: inherit;
-  border: none;
+.p2-seg-row {
+  display: flex; align-items: center; margin-bottom: 12px;
+  background: rgba(23,63,120,.08); border-radius: 999px;
+  padding: 3px; gap: 0;
 }
-.p2-seg-btn.on { background: var(--navy); color: #fff; }
+.p2-seg-btn {
+  flex: 1; height: 30px; padding: 0 14px; border-radius: 999px;
+  background: transparent; color: var(--muted);
+  font-size: 12px; font-weight: 800; cursor: pointer;
+  transition: background .2s, color .2s, box-shadow .2s;
+  font-family: inherit; border: none; white-space: nowrap;
+}
+.p2-seg-btn.on {
+  background: var(--navy); color: #fff;
+  box-shadow: 0 2px 8px rgba(23,63,120,.22);
+}
 
 /* ── 보고서 브리프 ─────────────────────────────────────────────────────── */
 .p2-brief-wrap { margin-top: 10px; }
@@ -2485,116 +2492,168 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 }
 .public-private-note strong { font-weight: 700; }
 
-/* ══════════════════════════════════════════════════════════════════════
-   TOP NAV TABS
-══════════════════════════════════════════════════════════════════════ */
-.topnav {
+/* ── Team visual parity: topbar tabs ───────────────────────────────────── */
+.topbar-nav {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex: 1;
-  justify-content: center;
 }
-.topnav-tab {
+.topbar-tab {
   height: 36px;
   padding: 0 18px;
   border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
   cursor: pointer;
+  font-family: inherit;
   border: none;
+  background: transparent;
+  color: var(--muted);
   transition: background .15s, color .15s;
-  letter-spacing: -.01em;
 }
-.topnav-tab:hover { color: var(--navy); }
-.topnav-tab.on { background: var(--navy); color: #fff !important; }
-.topnav-tab.on::after { display: none; }
+.topbar-tab.on {
+  background: transparent;
+  color: var(--navy);
+  position: relative;
+}
+.topbar-tab.on::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  height: 2px;
+  background: var(--navy);
+  border-radius: 2px;
+}
+.topbar-tab:not(.on):hover {
+  background: rgba(23,63,120,.07);
+  color: var(--navy);
+}
 
-/* ══════════════════════════════════════════════════════════════════════
-   PREVIEW PAGE (메인 프리뷰)
-══════════════════════════════════════════════════════════════════════ */
-.sa-preview-page {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 0 0 48px;
+/* ── Team visual parity: preview page ──────────────────────────────────── */
+.preview-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--topbar-h) - 44px);
+  gap: 14px;
 }
-.kpi-grid {
+.preview-stats-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  margin-bottom: 20px;
+  flex-shrink: 0;
 }
-.kpi-card {
+.preview-stat-card {
   background: var(--card);
   border-radius: 16px;
   box-shadow: var(--sh);
-  padding: 20px 22px 16px;
+  padding: 16px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 88px;
+  text-align: center;
 }
-.kpi-label {
-  font-size: 11.5px;
-  color: var(--muted);
+.psc-label {
+  font-size: 11px;
   font-weight: 700;
-  margin-bottom: 8px;
+  color: var(--muted);
+  letter-spacing: .02em;
+  margin-bottom: 6px;
 }
-.kpi-value {
+.psc-value {
   font-size: 22px;
   font-weight: 900;
   color: var(--navy);
-  line-height: 1.2;
-  letter-spacing: -.02em;
+  letter-spacing: -.03em;
+  line-height: 1.1;
+  margin-bottom: 6px;
 }
-.kpi-src {
+.psc-source {
   font-size: 10.5px;
   color: var(--muted);
-  margin-top: 7px;
 }
-.preview-2col {
+.preview-bottom-row {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
-.map-wrap, .market-trends-card {
+.preview-map-block,
+.preview-news-block {
   background: var(--card);
   border-radius: 16px;
   box-shadow: var(--sh);
-  padding: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-.kpi-card-title {
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--navy);
-  margin-bottom: 12px;
-  display: block;
-}
-.trends-header {
+.pvblock-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  padding: 14px 18px 12px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--navy);
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(23,63,120,.06);
 }
-.trends-header .kpi-card-title { margin-bottom: 0; }
-.btn-news-refresh {
-  font-size: 11.5px;
-  color: var(--muted);
-  background: var(--bg2);
-  border: none;
-  border-radius: 6px;
-  padding: 4px 11px;
-  cursor: pointer;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background .15s;
+#preview-map {
+  flex: 1;
+  min-height: 0;
+  z-index: 0;
 }
-.btn-news-refresh:hover { background: rgba(0,0,0,0.09); }
-.process-sub {
+.preview-news-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.pvnews-item {
+  display: block;
+  padding: 12px 18px 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: background .13s;
+}
+.pvnews-item + .pvnews-item {
+  box-shadow: inset 0 1px 0 rgba(23,63,120,.06);
+}
+a.pvnews-item:hover { background: rgba(23,63,120,.03); }
+.pvnews-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+.pvnews-source {
   font-size: 11px;
   color: var(--muted);
-  margin-top: 2px;
-  font-weight: 500;
 }
+.pvnews-loading,
+.pvnews-empty {
+  padding: 28px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Team build does not show these Saudi-only helper notes in the main flow. */
+.process-sub,
+.public-private-note,
+.price-disclaimer {
+  display: none;
+}
+
 @media (max-width: 760px) {
-  .kpi-grid     { grid-template-columns: repeat(2,1fr); }
-  .preview-2col { grid-template-columns: 1fr; }
+  .preview-stats-row { grid-template-columns: repeat(2,1fr); }
+  .preview-bottom-row { grid-template-columns: 1fr; }
+  .preview-page { height: auto; }
+  #preview-map { min-height: 300px; }
 }

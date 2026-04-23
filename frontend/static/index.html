@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>사우디아라비아 수출 적합성 분석 — UPharma Export AI</title>
-  <link rel="stylesheet" href="/static/style.css?v=17"/>
+  <link rel="stylesheet" href="/static/style.css?v=18"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
@@ -18,13 +18,13 @@
       <h1>한국유나이티드제약(주) 해외 영업·마케팅 대시보드</h1>
     </div>
   </div>
-  <nav class="topnav">
-    <button id="tab-preview" class="tab topnav-tab on" onclick="goTab('preview',this)">메인 프리뷰</button>
-    <button id="tab-main"    class="tab topnav-tab"    onclick="goTab('main',this)">시장조사 분석</button>
-  </nav>
   <div class="topbar-r">
+    <nav class="topbar-nav">
+      <button class="topbar-tab on" id="tab-preview" onclick="goPreviewTab('preview', this)">메인 프리뷰</button>
+      <button class="topbar-tab" id="tab-main" onclick="goPreviewTab('main', this)">시장조사 분석</button>
+    </nav>
     <div class="pill">
-      <span class="flag-emoji">🇸🇦</span>
+      <img class="flag-img" src="https://flagcdn.com/sa.svg" alt="SA">
       <span>Saudi Arabia</span>
     </div>
   </div>
@@ -34,44 +34,44 @@
 
   <!-- ════ 메인 프리뷰 ════ -->
   <div id="preview" class="page on">
-    <div class="sa-preview-page">
+    <div class="preview-page">
 
       <!-- KPI 카드 4개 -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">국가 GDP</div>
-          <div class="kpi-value">US$ 1.07 Trillion</div>
-          <div class="kpi-src">출처: IMF (2024)</div>
+      <div class="preview-stats-row">
+        <div class="preview-stat-card">
+          <div class="psc-label">국가 GDP</div>
+          <div class="psc-value">US$ 1.07 Trillion</div>
+          <div class="psc-source">출처: IMF (2024)</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">인구</div>
-          <div class="kpi-value">36,900,000명</div>
-          <div class="kpi-src">2024 · UN</div>
+        <div class="preview-stat-card">
+          <div class="psc-label">인구</div>
+          <div class="psc-value">36,900,000명</div>
+          <div class="psc-source">2024 · UN</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">의약품 시장 규모</div>
-          <div class="kpi-value">$11.2B</div>
-          <div class="kpi-src">2024 · IQVIA</div>
+        <div class="preview-stat-card">
+          <div class="psc-label">의약품 시장 규모</div>
+          <div class="psc-value">$11.2B</div>
+          <div class="psc-source">2024 · IQVIA</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">실질 성장률</div>
-          <div class="kpi-value">5.8%</div>
-          <div class="kpi-src">2024 · IMF</div>
+        <div class="preview-stat-card">
+          <div class="psc-label">실질 성장률</div>
+          <div class="psc-value">5.8%</div>
+          <div class="psc-source">2024 · IMF</div>
         </div>
       </div>
 
       <!-- 지도 + 뉴스 2컬럼 -->
-      <div class="preview-2col">
-        <div class="map-wrap">
-          <span class="kpi-card-title">사우디아라비아 위치</span>
-          <div id="sa-map" class="sg-leaflet-map" style="height:350px;"></div>
+      <div class="preview-bottom-row">
+        <div class="preview-map-block">
+          <div class="pvblock-header">사우디아라비아 위치</div>
+          <div id="preview-map"></div>
         </div>
-        <div class="market-trends-card">
-          <div class="trends-header">
-            <span class="kpi-card-title">사우디아라비아 의약품 시장 주요 동향</span>
-            <button class="btn-news-refresh" id="btn-news-refresh" onclick="loadNews()">↺ 새로고침</button>
+        <div class="preview-news-block">
+          <div class="pvblock-header">
+            <span>사우디아라비아 의약품 시장 주요 동향</span>
+            <button class="btn-refresh" id="btn-preview-news-refresh" onclick="loadPreviewNews()" style="margin-top:0;">↺ 새로고침</button>
           </div>
-          <div id="news-list"></div>
+          <div id="preview-news-list" class="preview-news-list"></div>
         </div>
       </div>
 
@@ -113,7 +113,7 @@
                     <option value="gastiin-cr">[개량신약] Gastiin CR · mosapride citrate 15mg</option>
                   </select>
                   <button class="btn-analyze" id="btn-analyze" onclick="runPipeline()">
-                    <span id="btn-icon">▶</span> 분석 실행
+                    <span id="btn-icon">▶</span> 시장 조사
                   </button>
                 </div>
                 <div id="p1-loading-state" class="p1-simple-loading" style="display:none;">
@@ -150,11 +150,11 @@
                 </div>
                 <div class="selector-row" style="flex-wrap:wrap;gap:10px;margin-top:10px;">
                   <div class="p2-seg-row" style="margin-bottom:0;flex:1;min-width:180px;">
-                    <button class="p2-seg-btn on" id="p2-ai-seg-public"  type="button" onclick="setP2AiSeg('public')"  title="NUPCO·MOH 등 정부 입찰(공공조달) 기준. 입찰 사양·물량에 따라 민간 소매가보다 높게 형성될 수 있습니다.">공공 시장 (NUPCO)</button>
+                    <button class="p2-seg-btn on" id="p2-ai-seg-public"  type="button" onclick="setP2AiSeg('public')"  title="NUPCO·MOH 등 정부 입찰(공공조달) 기준. 입찰 사양·물량에 따라 민간 소매가보다 높게 형성될 수 있습니다.">공공 시장</button>
                     <button class="p2-seg-btn"    id="p2-ai-seg-private" type="button" onclick="setP2AiSeg('private')" title="민간 약국·병원·도매 유통 기준. 에이전트 마진과 소매 마크업이 포함됩니다.">민간 시장</button>
                   </div>
                   <button class="btn-analyze" id="btn-p2-ai-run" type="button" onclick="runP2AiPipeline()">
-                    <span id="p2-ai-run-icon">▶</span> AI 가격 분석 실행
+                    <span id="p2-ai-run-icon">▶</span> AI 가격 산출
                   </button>
                 </div>
                 <div class="public-private-note">
@@ -305,7 +305,7 @@
             <div class="selector-card">
 
               <div id="p3-no-report-banner" class="p3-no-report-banner" style="display:none;">
-                ⚠ 보고서가 없습니다. 먼저 1단계를 완료해 주세요.
+                ⚠ 먼저 시장 조사와 가격 산출을 완료해 주세요.
               </div>
 
               <div class="selector-row" style="margin-top:10px;">
@@ -313,7 +313,7 @@
                   <option value="">시장조사 보고서를 선택하세요</option>
                 </select>
                 <button class="btn-analyze" id="btn-p3-run" onclick="runP3Pipeline()">
-                  <span id="p3-run-icon">▶</span> 바이어 발굴 실행
+                  <span id="p3-run-icon">▶</span> 바이어 발굴
                 </button>
               </div>
 
@@ -468,7 +468,7 @@
   </button>
 </div>
 
-<script src="/static/app.js?v=20"></script>
+<script src="/static/app.js?v=21"></script>
 <script>
 function toggleManual() {
   var body  = document.getElementById('manual-body');
