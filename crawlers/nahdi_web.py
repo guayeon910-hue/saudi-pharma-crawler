@@ -252,6 +252,17 @@ def _extract_from_algolia_hit(hit: dict) -> dict | None:
     if manufacturer:
         product["brand"] = manufacturer
 
+    # 활성 성분/분류 메타데이터. 타겟 검색 단계에서 관련성 필터링과 가격 근거에 사용한다.
+    ingredient = hit.get("ingredient") or hit.get("imf_matrix_segment_2")
+    if ingredient:
+        product["ingredient"] = str(ingredient)
+    imf_segment = hit.get("imf_segment5") or hit.get("imf_matrix_segment_1")
+    if imf_segment:
+        product["imf_ingredient"] = str(imf_segment)
+    concentration = hit.get("concentration")
+    if concentration:
+        product["strength"] = str(concentration)
+
     # 제형
     form = hit.get("product_form")
     if form:
@@ -261,6 +272,10 @@ def _extract_from_algolia_hit(hit: dict) -> dict | None:
     url = hit.get("url")
     if url:
         product["url"] = url
+
+    categories = hit.get("categories_without_path")
+    if isinstance(categories, list):
+        product["categories"] = [str(c) for c in categories if c]
 
     return product
 
@@ -329,9 +344,9 @@ def map_nahdi_to_schema(product: dict, *, source_url: str) -> dict[str, Any]:
         "fob_estimated_usd": None,
         "confidence": 0.75,
         "trade_name": name,
-        "scientific_name": None,  # 소매 사이트 — SFDA 매칭 필요
-        "strength": None,
-        "dosage_form": None,
+        "scientific_name": product.get("ingredient") or product.get("imf_ingredient"),
+        "strength": product.get("strength"),
+        "dosage_form": product.get("form"),
         "price_local": price,
         "price_sar": price,
         "manufacturer_or_marketing_company": product.get("brand"),

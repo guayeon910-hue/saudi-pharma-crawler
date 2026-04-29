@@ -47,7 +47,8 @@ sys.path.insert(0, str(ROOT / "assets" / "snippets"))
 sys.path.insert(0, str(ROOT))
 
 from drug_registry import DrugRegistry, TargetDrug
-from targeted_search import search_one_drug, AggregatedResult
+from targeted_search import search_one_drug, AggregatedResult, _annotate_match
+from frontend.buyer_sources import curated_buyer_candidates
 from frontend.dashboard_sites import SITES, get_initial_states
 from frontend.fob_private import run_private_pipeline, run_public_pipeline
 
@@ -146,7 +147,11 @@ def _get_llm():
     global _llm_client
     if _llm_client is not None:
         return _llm_client
-    api_key = os.environ.get("CLAUDE_API_KEY", "")
+    api_key = (
+        os.environ.get("CLAUDE_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or ""
+    ).strip()
     if api_key:
         try:
             from llm_client import ClaudeClient
@@ -181,7 +186,7 @@ def _get_pplx():
         load_dotenv(ROOT / ".env")
     except ImportError:
         pass
-    pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
+    pplx_key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
     if pplx_key:
         try:
             from perplexity_client import PerplexityClient
@@ -960,6 +965,7 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
 
     sb = _get_supabase()
     ingredient_key = drug.ingredient.split("+")[0].strip()
+    ingredient_names = _registry.generate_search_keywords(drug).get("ingredient_names", [ingredient_key])
 
     # DB에서 동일 성분 가격 조회 (컬럼명·필터 호환)
     if sb:
@@ -969,6 +975,9 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
                 logger.warning("가격 동일성분 DB 조회: %s", same_err)
             else:
                 for row in same_rows:
+                    annotated_row = _annotate_match(_shape_record_for_dashboard(row), ingredient_names)
+                    if not annotated_row or annotated_row.get("match_quality") != "ingredient":
+                        continue
                     pl = _row_price_local(row)
                     if pl is None:
                         continue
@@ -1046,6 +1055,8 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
     if search_data and isinstance(search_data, dict):
         for sr in search_data.get("source_results", []):
             for m in sr.get("matches", []):
+                if m.get("match_quality") and m.get("match_quality") != "ingredient":
+                    continue
                 p = m.get("price_sar") or m.get("price") or m.get("retail_price")
                 if p is not None:
                     try:
@@ -1824,11 +1835,38 @@ def _load_ai_discovered_sources_for_p3(sb) -> list[dict]:
     return out
 
 
+def _normalize_p3_prospect(item: dict) -> dict:
+    out = dict(item or {})
+    url = str(out.get("url") or out.get("website") or out.get("contact") or "").strip()
+    if url:
+        out["url"] = url
+        out.setdefault("website", url)
+
+    title = str(
+        out.get("title")
+        or out.get("company")
+        or out.get("name")
+        or (urlparse(url).netloc if url else "")
+    ).strip()
+    if title:
+        out.setdefault("title", title)
+        out.setdefault("company", title)
+        out.setdefault("name", title)
+
+    if url and not out.get("domain"):
+        out["domain"] = urlparse(url).netloc.lower()
+    out.setdefault("country", "Saudi Arabia")
+    if out.get("category") and not out.get("type"):
+        out["type"] = out.get("category")
+    return out
+
+
 def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict]) -> list[dict]:
     """DB 등록 소스를 먼저 두고, 같은 도메인은 Perplexity 쪽에서 제외."""
     seen: set[str] = set()
     merged: list[dict] = []
     for item in db_items:
+        item = _normalize_p3_prospect(item)
         u = str(item.get("url") or "")
         b = _p3_base_domain_for_dedupe(u)
         if not b or b in seen:
@@ -1836,6 +1874,7 @@ def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict])
         seen.add(b)
         merged.append(item)
     for item in perplexity_items:
+        item = _normalize_p3_prospect(item)
         u = str(item.get("url") or "")
         b = _p3_base_domain_for_dedupe(u)
         if not b or b in seen:
@@ -1849,8 +1888,6 @@ def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict])
 async def api_p3_prospects(req: P3ProspectsRequest):
     """3공정: 바이어/파트너 후보 — Supabase 등록 소스 + Perplexity 검색 병합."""
     pplx = _get_pplx()
-    if not pplx:
-        raise HTTPException(503, "PERPLEXITY_API_KEY 미설정")
 
     drug: Optional[TargetDrug] = None
     if req.product_key:
@@ -1885,6 +1922,19 @@ async def api_p3_prospects(req: P3ProspectsRequest):
     if sb:
         db_sources = _load_ai_discovered_sources_for_p3(sb)
 
+    curated_sources = curated_buyer_candidates(drug_info, limit=30)
+    if not pplx:
+        merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        return {
+            "ok": True,
+            "count": len(merged),
+            "items": merged,
+            "ai_count": 0,
+            "curated_count": len(curated_sources),
+            "db_count": len(db_sources),
+            "warning": "PERPLEXITY_API_KEY is not configured; curated Saudi buyer seeds were used.",
+        }
+
     try:
         items = await asyncio.to_thread(
             pplx.search_pharma_sources,
@@ -1896,14 +1946,27 @@ async def api_p3_prospects(req: P3ProspectsRequest):
             key=lambda x: float(x.get("relevance_score") or 0.0),
             reverse=True,
         )
-        merged = _merge_p3_prospect_lists(db_sources, items_sorted)
-        return {"ok": True, "count": len(merged), "items": merged}
+        merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+        return {
+            "ok": True,
+            "count": len(merged),
+            "items": merged,
+            "ai_count": len(items_sorted),
+            "curated_count": len(curated_sources),
+            "db_count": len(db_sources),
+        }
     except Exception as exc:
-        logger.warning("P3 prospects Perplexity 실패: %s", exc)
-        return JSONResponse(
-            status_code=502,
-            content={"ok": False, "error": f"Perplexity 요청 실패: {str(exc)[:160]}"},
-        )
+        logger.warning("P3 prospects Perplexity 실패, curated buyer seeds 사용: %s", exc)
+        merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        return {
+            "ok": True,
+            "count": len(merged),
+            "items": merged,
+            "ai_count": 0,
+            "curated_count": len(curated_sources),
+            "db_count": len(db_sources),
+            "warning": f"Perplexity search failed; curated Saudi buyer seeds were used. {str(exc)[:120]}",
+        }
 
 
 @app.post("/api/p3/white-space")
@@ -2637,9 +2700,6 @@ async def buyers_run(req: BuyersRunRequest):
                 return
 
             pplx = _get_pplx()
-            if not pplx:
-                _buyer_task.update({"status": "error", "error": "PERPLEXITY_API_KEY 미설정"})
-                return
 
             excluded_domains: set[str] = set()
             for s in SITES:
@@ -2659,20 +2719,41 @@ async def buyers_run(req: BuyersRunRequest):
             if sb:
                 db_sources = _load_ai_discovered_sources_for_p3(sb)
 
-            items = await asyncio.to_thread(
-                pplx.search_pharma_sources,
-                drug_info,
-                excluded_domains,
-            )
-            items_sorted = sorted(
-                items,
-                key=lambda x: float(x.get("relevance_score") or 0.0),
-                reverse=True,
-            )
-            merged = _merge_p3_prospect_lists(db_sources, items_sorted)
+            curated_sources = curated_buyer_candidates(drug_info, limit=30)
+            items_sorted: list[dict] = []
+            warning: Optional[str] = None
+            if pplx:
+                try:
+                    items = await asyncio.to_thread(
+                        pplx.search_pharma_sources,
+                        drug_info,
+                        excluded_domains,
+                    )
+                    items_sorted = sorted(
+                        items,
+                        key=lambda x: float(x.get("relevance_score") or 0.0),
+                        reverse=True,
+                    )
+                except Exception as exc:
+                    logger.warning("Buyers Perplexity 검색 실패, curated buyer seeds 사용: %s", exc)
+                    warning = f"Perplexity search failed; curated Saudi buyer seeds were used. {str(exc)[:120]}"
+            else:
+                warning = "PERPLEXITY_API_KEY is not configured; curated Saudi buyer seeds were used."
+
+            merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+            result_payload = {
+                "ok": True,
+                "count": len(merged),
+                "items": merged,
+                "ai_count": len(items_sorted),
+                "curated_count": len(curated_sources),
+                "db_count": len(db_sources),
+            }
+            if warning:
+                result_payload["warning"] = warning
             _buyer_task.update({
                 "status": "done",
-                "result": {"ok": True, "count": len(merged), "items": merged},
+                "result": result_payload,
             })
             # P3 보고서 자동 생성
             try:

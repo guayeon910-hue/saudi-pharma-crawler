@@ -142,7 +142,14 @@ class ClaudeClient:
         default_model: str = DEFAULT_MODEL,
         max_tokens: int = 1024,
     ):
-        self._api_key = api_key or os.environ.get("CLAUDE_API_KEY", "")
+        if api_key is not None:
+            self._api_key = api_key.strip()
+        else:
+            self._api_key = (
+                os.environ.get("CLAUDE_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                or ""
+            ).strip()
         self._default_model = default_model
         self._default_max_tokens = max_tokens
         self.usage = TokenUsage()

@@ -142,7 +142,7 @@ class TestPerplexityClientInit(unittest.TestCase):
 class TestSearchPharmaSources(unittest.TestCase):
     @patch("httpx.Client")
     def test_success_with_citations(self, MockClient):
-        """정상 응답 + citations 병합."""
+        """정상 응답 + citations는 점수 검증에만 사용."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = _make_pplx_response(
@@ -156,7 +156,7 @@ class TestSearchPharmaSources(unittest.TestCase):
         client = PerplexityClient(api_key="pplx-test")
         results = client.search_pharma_sources(DRUG_INFO, EXCLUDED_DOMAINS)
 
-        # AI 응답에서 3개 + citations에서 추가 1개 (extra-citation.sa)
+        # AI 응답에서 3개 유지. citation-only URL은 바이어가 아니므로 제외.
         # lowrelevance.example.com도 포함 (필터는 score가 아닌 domain만)
         self.assertGreaterEqual(len(results), 3)
 
@@ -164,7 +164,7 @@ class TestSearchPharmaSources(unittest.TestCase):
         domains = {r["domain"] for r in results}
         self.assertIn("dawaya.sa", domains)
         self.assertIn("saudidrugprices.com", domains)
-        self.assertIn("extra-citation.sa", domains)
+        self.assertNotIn("extra-citation.sa", domains)
 
         # 토큰 추적
         summary = client.usage.summary()
@@ -379,8 +379,8 @@ class TestRetryLogic(unittest.TestCase):
 
 class TestCitationMerge(unittest.TestCase):
     @patch("httpx.Client")
-    def test_citation_only_urls_added(self, MockClient):
-        """AI 응답에 없지만 citations에만 있는 URL이 추가되는지."""
+    def test_citation_only_urls_are_not_added(self, MockClient):
+        """AI 응답에 없고 citations에만 있는 URL은 바이어 목록에서 제외."""
         # AI 응답: dawaya.sa만
         # citations: dawaya.sa + newsite.sa
         mock_resp = MagicMock()
@@ -401,12 +401,7 @@ class TestCitationMerge(unittest.TestCase):
 
         domains = {r["domain"] for r in results}
         self.assertIn("dawaya.sa", domains)
-        self.assertIn("newsite.sa", domains)
-
-        # citation-only 소스의 기본 score
-        newsite = [r for r in results if r["domain"] == "newsite.sa"][0]
-        self.assertEqual(newsite["relevance_score"], 0.65)
-        self.assertEqual(newsite["description"], "Perplexity citation")
+        self.assertNotIn("newsite.sa", domains)
 
     @patch("httpx.Client")
     def test_citation_excluded_domain_not_added(self, MockClient):

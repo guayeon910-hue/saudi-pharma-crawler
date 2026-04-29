@@ -57,11 +57,12 @@ SEARCH_USER_TEMPLATE = """Find Saudi Arabian pharmaceutical importers, distribut
 - Dosage Form: {dosage_form}
 - Strength: {strength}
 
-Focus on: licensed importers, SFDA-registered distributors, NUPCO-approved suppliers, hospital group procurement offices, pharmacy chains in Saudi Arabia.
+Focus on: licensed importers, SFDA-registered distributors, NUPCO-approved suppliers, hospital group procurement offices, pharmacy chains, and Saudi pharmaceutical companies that actively in-license or distribute partner products.
+If drug-specific buyers are scarce, include credible general Saudi pharmaceutical distributors or procurement targets that could onboard a new Korean product after regulatory review.
 
 Exclude these already-known domains: {excluded}
 
-Return a JSON array of up to 10 objects. Each object must have:
+Return a JSON array of 15 to 20 objects when possible. Each object must have:
 - "url": company website URL (homepage or product page)
 - "title": full company name
 - "description": 1-2 sentences about what this company does and why it is relevant as a buyer/distributor for this drug
@@ -70,6 +71,26 @@ Return a JSON array of up to 10 objects. Each object must have:
 - "has_product_listing": boolean — true if website lists this or similar drugs
 - "language": "en", "ar", or "mixed"
 - "relevance_score": float 0.0–1.0 reflecting how likely this company could distribute this drug in Saudi Arabia
+
+Return ONLY the JSON array, no other text. Do not return fewer than 10 objects unless fewer than 10 credible Saudi buyer targets exist."""
+
+REFERENCE_SYSTEM_PROMPT = """You are a pharmaceutical market research assistant.
+Find concise, citable web references for Saudi Arabia pharmaceutical market analysis.
+Return ONLY a valid JSON array. No explanation, no markdown, no code fences."""
+
+REFERENCE_USER_TEMPLATE = """Find citable sources for this Saudi Arabia/KSA pharmaceutical market report:
+- Drug: {trade_name}
+- Active Ingredients: {ingredients}
+- Dosage Form: {dosage_form}
+- Strength: {strength}
+
+Prioritize official or high-signal sources: SFDA drug registration/price pages, Saudi pharmacy product pages, public procurement pages, clinical or regulatory references.
+
+Return a JSON array of up to 8 objects. Each object must have:
+- "url": source URL
+- "title": short source title
+- "category": one of "regulatory", "price_database", "pharmacy", "clinical", "procurement", "market"
+- "reason": one short sentence explaining why it supports the report
 
 Return ONLY the JSON array, no other text."""
 
@@ -94,7 +115,11 @@ class PerplexityClient:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
     ):
-        self._api_key = api_key or os.environ.get("PERPLEXITY_API_KEY", "")
+        self._api_key = (
+            api_key.strip()
+            if api_key is not None
+            else os.environ.get("PERPLEXITY_API_KEY", "").strip()
+        )
         self.model = model or os.environ.get("PERPLEXITY_MODEL", DEFAULT_MODEL)
         self.usage = TokenUsage()
 
@@ -153,7 +178,7 @@ class PerplexityClient:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 2048,
+            "max_tokens": 4096,
         }
 
         data = self._call_with_retry(body)
@@ -196,9 +221,42 @@ class PerplexityClient:
             url = src.get("url", "")
             if not url.startswith("http"):
                 continue
+            url_path = urlparse(url).path.lower()
+            if url_path.endswith(".pdf"):
+                continue
 
             domain = urlparse(url).netloc.lower()
             base_domain = ".".join(domain.split(".")[-2:])
+            source_text = " ".join(
+                str(src.get(key, ""))
+                for key in ("title", "description", "category")
+            ).lower()
+            source_text = f"{source_text} {url.lower()}"
+            saudi_terms = (
+                "saudi",
+                "ksa",
+                "kingdom of saudi arabia",
+                "riyadh",
+                "jeddah",
+                "dammam",
+                "khobar",
+                ".sa",
+            )
+            foreign_terms = (
+                "qatar",
+                "uae",
+                "united arab emirates",
+                "kuwait",
+                "bahrain",
+                "oman",
+                "egypt",
+                "jordan",
+            )
+            has_saudi_signal = any(term in source_text for term in saudi_terms)
+            if any(term in source_text for term in foreign_terms) and not has_saudi_signal:
+                continue
+            if str(src.get("category", "")).lower() == "hospital_group" and not has_saudi_signal:
+                continue
 
             # 제외 도메인 필터 (방어적)
             if base_domain in excluded_domains or domain in excluded_domains:
@@ -228,31 +286,8 @@ class PerplexityClient:
                 "language": src.get("language", ""),
             })
 
-        # citations에만 있는 URL 추가 (AI 응답에 없지만 Perplexity가 참조한 소스)
-        for cit_url in citations:
-            try:
-                cit_domain = urlparse(cit_url).netloc.lower()
-                cit_base = ".".join(cit_domain.split(".")[-2:])
-
-                if cit_base in excluded_domains or cit_domain in excluded_domains:
-                    continue
-                if cit_base in seen_domains:
-                    continue
-
-                seen_domains.add(cit_base)
-                results.append({
-                    "url": cit_url,
-                    "domain": cit_domain,
-                    "title": "",
-                    "description": "Perplexity citation",
-                    "relevance_score": 0.65,
-                    "category": "other",
-                    "has_price_data": False,
-                    "has_product_listing": False,
-                    "language": "",
-                })
-            except Exception:
-                pass
+        # Citation-only URLs are evidence links, not buyer records. They are
+        # used above to score returned company URLs, but not appended to P3.
 
         logger.info(
             "Perplexity 검색 완료: %d sources (%d citations)",
@@ -260,6 +295,84 @@ class PerplexityClient:
         )
 
         return results
+
+    def search(
+        self,
+        *,
+        trade_name: str,
+        ingredients: str,
+        dosage_form: str = "",
+        strength: str = "",
+    ) -> dict:
+        """Report reference search used by frontend.server._fetch_references.
+
+        Returns
+        -------
+        dict
+            {"sources": [{title, url, category, reason}, ...]}
+        """
+        prompt = REFERENCE_USER_TEMPLATE.format(
+            trade_name=trade_name,
+            ingredients=ingredients,
+            dosage_form=dosage_form,
+            strength=strength,
+        )
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": REFERENCE_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1536,
+        }
+
+        data = self._call_with_retry(body)
+        content = data["choices"][0]["message"]["content"]
+        citations = data.get("citations", []) or []
+
+        usage = data.get("usage", {})
+        self.usage.add(
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
+
+        try:
+            raw_items = self._parse_json(content)
+        except Exception as parse_err:
+            logger.warning("Perplexity reference JSON parse exception: %s", parse_err)
+            raw_items = []
+        if not isinstance(raw_items, list):
+            raw_items = []
+
+        results: list[dict] = []
+        seen_urls: set[str] = set()
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url.startswith("http") or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            results.append({
+                "url": url,
+                "title": str(item.get("title") or urlparse(url).netloc or "Source")[:200],
+                "category": str(item.get("category") or "web"),
+                "reason": str(item.get("reason") or "Perplexity reference")[:300],
+            })
+
+        for url in citations:
+            if not isinstance(url, str) or not url.startswith("http") or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            results.append({
+                "url": url,
+                "title": urlparse(url).netloc or "Citation",
+                "category": "citation",
+                "reason": "Perplexity citation",
+            })
+
+        return {"sources": results[:8]}
 
     # -------------------------------------------------------------------
     # 내부

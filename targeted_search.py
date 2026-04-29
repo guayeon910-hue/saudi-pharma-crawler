@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -105,9 +106,159 @@ SOURCE_CATEGORIES = {
     "nahdi_web":            "민간",
     "al_dawaa_web":         "민간",
     "whites_web":           "민간",
+    "rosheta_web":          "민간",
     "tamer_group":          "민간",
     "noon_saudi":           "민간",
 }
+
+
+# ─── 성분 매칭/검색어 보강 ─────────────────────────────────
+
+_INGREDIENT_STOP_TOKENS = {
+    "acid", "acids", "citrate", "calcium", "sodium", "potassium",
+    "propionate", "ester", "salt", "hydrate", "anhydrous",
+}
+
+
+def _norm_text(text: object) -> str:
+    """성분 비교용 느슨한 정규화."""
+    if text is None:
+        return ""
+    out = unicodedata.normalize("NFKC", str(text)).lower()
+    out = out.replace("µ", "u").replace("μ", "u")
+    out = re.sub(r"omega\s*[- ]?\s*3", "omega 3", out)
+    out = re.sub(r"[^a-z0-9]+", " ", out)
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def _ingredient_tokens(name: str) -> set[str]:
+    """함량·염·제형성 보조어를 제거한 성분 토큰."""
+    text = _norm_text(name)
+    text = re.sub(r"\b\d+(?:\.\d+)?\s*(?:mg|mcg|ug|g|ml|iu|mmol)\b", " ", text)
+    tokens = {
+        t for t in text.split()
+        if len(t) >= 3 and t not in _INGREDIENT_STOP_TOKENS and not t.isdigit()
+    }
+    # omega-3 계열에서 숫자 3은 단독 토큰으로는 변별력이 낮아 제외한다.
+    tokens.discard("3")
+    tokens.discard("90")
+    return tokens
+
+
+def _record_haystack(record: dict) -> str:
+    """검색 결과 dict에서 성분 판정에 쓸 텍스트를 구성."""
+    fields = [
+        record.get("scientific_name"),
+        record.get("ingredient"),
+        record.get("imf_ingredient"),
+        record.get("trade_name"),
+        record.get("name"),
+        record.get("brand"),
+        record.get("form"),
+        record.get("dosage_form"),
+        record.get("url"),
+        record.get("source_url"),
+    ]
+    cats = record.get("categories")
+    if isinstance(cats, (list, tuple)):
+        fields.extend(cats)
+    return _norm_text(" ".join(str(v) for v in fields if v))
+
+
+def _ingredient_match_quality(ingredient_name: str, record_text: str) -> str | None:
+    """record_text가 ingredient_name을 포함하는지 판정.
+
+    full: 주요 성분 토큰이 모두 확인됨
+    partial: omega처럼 일부 키워드만 확인됨. 가격 산정에는 쓰지 않는다.
+    """
+    tokens = _ingredient_tokens(ingredient_name)
+    if not tokens:
+        return None
+    hay = set(_norm_text(record_text).split())
+    matched = tokens & hay
+    if tokens <= hay:
+        return "full"
+    if "omega" in tokens and "omega" in matched:
+        return "partial"
+    return None
+
+
+def _annotate_match(record: dict, ingredient_names: list[str]) -> dict | None:
+    """성분이 맞는 결과만 남기고 match_quality를 부여."""
+    haystack = _record_haystack(record)
+    matched_terms = []
+    partial_terms = []
+    for name in ingredient_names:
+        q = _ingredient_match_quality(name, haystack)
+        if q == "full":
+            matched_terms.append(name)
+        elif q == "partial":
+            partial_terms.append(name)
+
+    if not matched_terms and not partial_terms:
+        return None
+
+    out = dict(record)
+    out["matched_ingredients"] = matched_terms or partial_terms
+    out["match_quality"] = "ingredient" if matched_terms else "partial_ingredient"
+    return out
+
+
+def _filter_relevant_matches(records: list[dict], ingredient_names: list[str], *, keep_partial: bool = False) -> list[dict]:
+    filtered = []
+    seen = set()
+    for record in records:
+        annotated = _annotate_match(record, ingredient_names)
+        if not annotated:
+            continue
+        if annotated.get("match_quality") == "partial_ingredient" and not keep_partial:
+            continue
+        key = (
+            annotated.get("regulatory_id")
+            or annotated.get("sku")
+            or annotated.get("product_id")
+            or annotated.get("url")
+            or annotated.get("trade_name")
+            or annotated.get("name")
+        )
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        filtered.append(annotated)
+    return filtered
+
+
+def _ingredient_search_terms(keywords: dict) -> list[str]:
+    """SFDA/Nahdi 검색용 변형어 생성.
+
+    SFDA는 `Omega-3-Acid Ethyl Esters 90`처럼 상세명이 너무 길면 0건을 반환하므로,
+    검증 가능한 짧은 변형어를 함께 조회한다.
+    """
+    terms: list[str] = []
+    for raw in keywords.get("ingredient_names", []):
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        terms.append(name)
+        tokens = _ingredient_tokens(name)
+        if "omega" in tokens:
+            terms.extend(["Omega-3", "Ethyl Esters"])
+        if len(tokens) > 1:
+            terms.append(" ".join(sorted(tokens)))
+        first = name.split()[0].strip()
+        if len(first) >= 4:
+            terms.append(first)
+
+    out = []
+    seen = set()
+    for term in terms:
+        clean = re.sub(r"\s+", " ", term).strip(" -")
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            out.append(clean)
+    return out
 
 
 # ─── 개별 소스 검색 함수 ─────────────────────────────────
@@ -146,8 +297,9 @@ def _search_sfda(drug: TargetDrug, keywords: dict) -> SearchResult:
             except Exception as e:
                 logger.warning(f"SFDA trade_name 검색 실패: {e}")
 
-            # 2) 성분명 검색 (각 성분별, 5페이지까지)
-            for name in keywords.get("ingredient_names", []):
+            # 2) 성분명 검색 (변형어 포함, 5페이지까지)
+            ingredient_names = keywords.get("ingredient_names", [])
+            for name in _ingredient_search_terms(keywords):
                 result.queries_used.append(f"ScientificName={name}")
                 try:
                     data = client.search(scientific_name=name, page=1)
@@ -167,8 +319,8 @@ def _search_sfda(drug: TargetDrug, keywords: dict) -> SearchResult:
                 except Exception as e:
                     logger.warning(f"SFDA scientific_name 검색 실패 ({name}): {e}")
 
-        result.matches = all_matches
-        result.confidence = 0.92 if all_matches else 0.0
+        result.matches = _filter_relevant_matches(all_matches, ingredient_names)
+        result.confidence = 0.92 if result.matches else 0.0
 
     except Exception as e:
         result.error = str(e)
@@ -226,15 +378,8 @@ def _search_nahdi(drug: TargetDrug, keywords: dict) -> SearchResult:
         source_url="https://www.nahdionline.com/en-sa",
     )
 
-    search_terms = []
-    # 성분명으로 검색 (제품명은 한국 브랜드라 매칭 안됨)
-    for name in keywords.get("ingredient_names", []):
-        search_terms.append(name)
-    # 성분명 첫 단어만으로도 검색 (약어/변형 대응)
-    for name in keywords.get("ingredient_names", []):
-        first_word = name.split()[0]
-        if first_word not in search_terms and len(first_word) >= 4:
-            search_terms.append(first_word)
+    search_terms = _ingredient_search_terms(keywords)
+    ingredient_names = keywords.get("ingredient_names", [])
 
     seen_names: set[str] = set()
 
@@ -246,9 +391,12 @@ def _search_nahdi(drug: TargetDrug, keywords: dict) -> SearchResult:
                     products = client.search(term, hits_per_page=20)
                     for p in products:
                         pname = p.get("name", "")
+                        annotated = _annotate_match(p, ingredient_names)
+                        if not annotated or annotated.get("match_quality") != "ingredient":
+                            continue
                         if pname and pname not in seen_names:
                             seen_names.add(pname)
-                            result.matches.append(p)
+                            result.matches.append(annotated)
                 except Exception as e:
                     logger.warning(f"Nahdi 검색 실패 ({term}): {e}")
 
@@ -270,14 +418,8 @@ def _search_whites(drug: TargetDrug, keywords: dict) -> SearchResult:
         source_url="https://www.whites.sa/en-sa",
     )
 
-    search_terms = []
-    for name in keywords.get("ingredient_names", []):
-        search_terms.append(name)
-    # 첫 단어만으로도 검색 (약어/변형 대응)
-    for name in keywords.get("ingredient_names", []):
-        first_word = name.split()[0]
-        if first_word not in search_terms and len(first_word) >= 4:
-            search_terms.append(first_word)
+    search_terms = _ingredient_search_terms(keywords)
+    ingredient_names = keywords.get("ingredient_names", [])
 
     seen_names: set[str] = set()
 
@@ -289,10 +431,13 @@ def _search_whites(drug: TargetDrug, keywords: dict) -> SearchResult:
                     html = client.search(term)
                     products = _parse_products_from_html(html)
                     for p in products:
+                        annotated = _annotate_match(p, ingredient_names)
+                        if not annotated or annotated.get("match_quality") != "ingredient":
+                            continue
                         pname = p.get("name", "")
                         if pname and pname not in seen_names:
                             seen_names.add(pname)
-                            result.matches.append(p)
+                            result.matches.append(annotated)
                 except Exception as e:
                     logger.warning(f"Whites 검색 실패 ({term}): {e}")
                     if "anti-bot" in str(e).lower() or "cloudflare" in str(e).lower():
@@ -300,6 +445,49 @@ def _search_whites(drug: TargetDrug, keywords: dict) -> SearchResult:
                         break
 
         result.confidence = 0.70 if result.matches else 0.0
+
+    except Exception as e:
+        result.error = str(e)
+
+    return result
+
+
+def _search_rosheta(drug: TargetDrug, keywords: dict) -> SearchResult:
+    """Rosheta Saudi medicine pages search."""
+    from crawlers.rosheta_web import RoshetaClient
+
+    result = SearchResult(
+        source_name="rosheta_web",
+        source_category="민간",
+        source_url="https://www.rosheta.com/en",
+    )
+
+    search_terms = _ingredient_search_terms(keywords)
+    ingredient_names = keywords.get("ingredient_names", [])
+    seen_urls: set[str] = set()
+
+    try:
+        with RoshetaClient(delay=0.8) as client:
+            for term in search_terms:
+                result.queries_used.append(f"search={term}")
+                try:
+                    products = client.search_products(term, max_links=8)
+                    for p in products:
+                        # Rosheta pages often omit a structured ingredient field, so the title/body
+                        # text is used through _annotate_match.
+                        annotated = _annotate_match(p, ingredient_names)
+                        if not annotated or annotated.get("match_quality") != "ingredient":
+                            continue
+                        url = annotated.get("url") or annotated.get("source_url")
+                        if url and url in seen_urls:
+                            continue
+                        if url:
+                            seen_urls.add(url)
+                        result.matches.append(annotated)
+                except Exception as e:
+                    logger.warning(f"Rosheta 검색 실패 ({term}): {e}")
+
+        result.confidence = 0.62 if result.matches else 0.0
 
     except Exception as e:
         result.error = str(e)
@@ -512,6 +700,24 @@ def _determine_feasibility(
         sfda_matches.extend(r.matches)
 
     if not sfda_matches:
+        retail_matches = []
+        for r in results:
+            if r.source_category == "민간":
+                retail_matches.extend(m for m in r.matches if m.get("match_quality") == "ingredient")
+        if retail_matches:
+            evidence_urls = list({
+                m.get("url") or m.get("source_url") or r.source_url
+                for r in results
+                for m in r.matches
+                if r.source_category == "민간" and m.get("match_quality") == "ingredient"
+            })
+            return (
+                "조건부",
+                f"SFDA 등록 데이터베이스에서는 '{drug.trade_name}'의 동일 성분 등록을 확인하지 못했지만, "
+                f"사우디 민간 약국 데이터에서 동일 성분으로 보이는 제품 {len(retail_matches)}건이 확인되었습니다. "
+                f"공식 등록번호 확인이 남아 있으므로 수출 가능성은 조건부로 판단합니다.",
+                evidence_urls[:5],
+            )
         return (
             "불가",
             f"SFDA 등록 데이터베이스에서 '{drug.trade_name}'의 성분({', '.join(keywords.get('ingredient_names', []))})에 "
@@ -521,21 +727,26 @@ def _determine_feasibility(
         )
 
     # 성분명 매칭 확인
-    target_names = [n.lower() for n in keywords.get("ingredient_names", [])]
+    target_names = [n for n in keywords.get("ingredient_names", []) if n]
     target_form = keywords.get("dosage_form_normalized", "")
+    target_count = max(1, len(target_names))
 
-    exact_matches = []  # 성분 + 제형 일치
-    partial_matches = []  # 성분만 일치
+    exact_matches = []    # 복합제는 모든 성분 + 제형 일치
+    partial_matches = []  # 일부 성분 또는 제형 차이
 
     for match in sfda_matches:
-        sci_name = (match.get("scientific_name") or "").lower()
+        sci_name = match.get("scientific_name") or ""
         form = normalize_dosage_form(match.get("dosage_form") or "") or ""
 
-        # 성분 매칭 여부
-        ingredient_match = any(name in sci_name for name in target_names if name)
+        matched_names = [
+            name for name in target_names
+            if _ingredient_match_quality(name, sci_name) == "full"
+        ]
+        ingredient_match = bool(matched_names)
+        all_ingredients_match = len(set(matched_names)) >= target_count
 
         if ingredient_match:
-            if target_form and form == target_form:
+            if all_ingredients_match and target_form and form == target_form:
                 exact_matches.append(match)
             else:
                 partial_matches.append(match)
@@ -563,9 +774,10 @@ def _determine_feasibility(
         sample = partial_matches[0]
         reg_id = sample.get("regulatory_id", "")
         existing_form = sample.get("dosage_form", "N/A")
+        combo_note = "복합제 전체 조합은 확인되지 않았고 일부 성분 기준으로 " if target_count > 1 else ""
         return (
             "조건부",
-            f"SFDA에 동일 성분의 의약품이 등록되어 있으나, 제형이 다릅니다. "
+            f"SFDA에 {combo_note}동일/유사 성분의 의약품이 등록되어 있으나, 제형 또는 성분 조합이 대상 품목과 다릅니다. "
             f"등록번호: {reg_id}, 등록 제형: {existing_form} (대상 제형: {drug.dosage_form}). "
             f"총 {len(partial_matches)}건의 부분 매칭이 확인되었습니다. "
             f"제형 차이로 인해 추가 등록 절차가 필요할 수 있습니다.",
@@ -653,7 +865,7 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
 
     # ─── 6. Whites (소매, Akinon) ───
-    logger.info("[6/7] Whites 약국 검색...")
+    logger.info("[6/8] Whites 약국 검색...")
     t = time.time()
     try:
         r = _search_whites(drug, keywords)
@@ -664,7 +876,19 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
 
-    # ─── 7. 차단/비활성 소스 (상태만 기록) ───
+    # ─── 7. Rosheta Saudi ───
+    logger.info("[7/8] Rosheta 검색...")
+    t = time.time()
+    try:
+        r = _search_rosheta(drug, keywords)
+    except Exception as e:
+        r = SearchResult(source_name="rosheta_web", source_category="민간",
+                         source_url="https://www.rosheta.com/en", error=str(e))
+    r.search_time_sec = time.time() - t
+    results.append(r)
+    logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
+
+    # ─── 8. 차단/비활성 소스 (상태만 기록) ───
     if skip_blocked:
         for name, url, reason in [
             ("al_dawaa_web", "https://www.al-dawaa.com", "Cloudflare 차단 (403)"),
@@ -683,8 +907,8 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
         t = time.time()
         try:
             from crawlers.al_dawaa_web import AlDawaaClient
-            r = _search_retail("al_dawaa_web", "https://www.al-dawaa.com/en/",
-                               AlDawaaClient, drug, keywords)
+            r = _search_retail_generic("al_dawaa_web", "https://www.al-dawaa.com/en/",
+                                       AlDawaaClient, drug, keywords)
         except Exception as e:
             r = SearchResult(source_name="al_dawaa_web", source_category="민간",
                              source_url="https://www.al-dawaa.com", error=str(e))

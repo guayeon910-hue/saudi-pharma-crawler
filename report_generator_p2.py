@@ -72,12 +72,19 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
     trade_name  = product.get("trade_name") or data.get("trade_name", "Unknown")
     inn         = product.get("inn") or product.get("ingredient", "")
 
-    scenarios        = data.get("scenarios", []) or []
+    scenarios_raw    = data.get("scenarios", []) or []
+    if isinstance(scenarios_raw, dict):
+        scenarios = []
+        for key, value in scenarios_raw.items():
+            if isinstance(value, dict):
+                scenarios.append({"name": key, **value})
+    else:
+        scenarios = [s for s in scenarios_raw if isinstance(s, dict)]
     competitor_stats = data.get("competitor_stats", {}) or {}
     regulatory_cost  = data.get("regulatory_cost", {}) or {}
     exchange_rates   = data.get("exchange_rates", {}) or {}
     classification   = data.get("classification", {}) or {}
-    notes            = data.get("notes", {}) or {}
+    notes            = data.get("notes", []) or []
     price_pool_sources = data.get("price_pool_sources", []) or []
 
     sar_usd = exchange_rates.get("sar_usd") or (1 / 3.75)
@@ -190,7 +197,7 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
             set_cell_shading(c, COLORS["navy"])
         for j, src in enumerate(price_pool_sources, start=1):
             ps_tbl.rows[j].cells[0].text = str(src.get("name") or src.get("source") or "—")
-            ps_tbl.rows[j].cells[1].text = str(src.get("type") or "—")
+            ps_tbl.rows[j].cells[1].text = str(src.get("type") or src.get("origin") or "—")
             ps_tbl.rows[j].cells[2].text = str(src.get("count") or src.get("sample_count") or "—")
     else:
         doc.add_paragraph("가격 풀 출처 정보 없음.")
@@ -241,7 +248,7 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
         if steps:
             step_tbl = doc.add_table(rows=1 + len(steps), cols=3)
             step_tbl.style = "Table Grid"
-            for i, h in enumerate(["단계", "항목", "값 (USD)"]):
+            for i, h in enumerate(["단계", "항목", "값 (SAR)"]):
                 c = step_tbl.rows[0].cells[i]
                 c.text = ""
                 r = c.paragraphs[0].add_run(h)
@@ -252,8 +259,8 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
             for si, step in enumerate(steps, start=1):
                 step_tbl.rows[si].cells[0].text = str(si)
                 step_tbl.rows[si].cells[1].text = str(step.get("label") or step.get("name") or step.get("step") or "—")
-                val = step.get("value") or step.get("usd") or step.get("amount") or ""
-                step_tbl.rows[si].cells[2].text = _fmt_usd(val) if val else "—"
+                val = step.get("value_sar") or step.get("value") or step.get("amount") or ""
+                step_tbl.rows[si].cells[2].text = _fmt_sar(val) if val else "—"
         else:
             doc.add_paragraph("역산 데이터 없음.")
         doc.add_paragraph("")
@@ -265,11 +272,11 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
     _sec_hdr(doc, "4. 규제비 감가상각")
 
     reg_rows = [
-        ("SFDA 등록비",      regulatory_cost.get("sfda_registration") or regulatory_cost.get("sfda_fee")),
-        ("SABER PCoC",       regulatory_cost.get("saber_pcoc") or regulatory_cost.get("pcoc")),
-        ("SCoC",             regulatory_cost.get("scoc")),
-        ("연 수량 (units)",   regulatory_cost.get("annual_units") or regulatory_cost.get("annual_quantity")),
-        ("유닛당 상각액 (USD)", regulatory_cost.get("per_unit_usd") or regulatory_cost.get("amortization_per_unit")),
+        ("SFDA 등록비",      regulatory_cost.get("sfda_registration_sar") or regulatory_cost.get("sfda_registration") or regulatory_cost.get("sfda_fee")),
+        ("SABER PCoC",       regulatory_cost.get("saber_pcoc_annual_sar") or regulatory_cost.get("saber_pcoc") or regulatory_cost.get("pcoc")),
+        ("SCoC",             regulatory_cost.get("saber_scoc_annual_sar") or regulatory_cost.get("scoc")),
+        ("연 수량 (units)",   (regulatory_cost.get("assumptions") or {}).get("annual_units") or regulatory_cost.get("annual_units") or regulatory_cost.get("annual_quantity")),
+        ("유닛당 상각액 (SAR)", regulatory_cost.get("per_unit_amortization_sar") or regulatory_cost.get("per_unit_usd") or regulatory_cost.get("amortization_per_unit")),
     ]
 
     reg_tbl = doc.add_table(rows=1 + len(reg_rows), cols=2)
@@ -294,9 +301,9 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
     cls_rows = [
         ("제품 유형",          classification.get("product_kind") or classification.get("type")),
         ("복합 제제 여부",      "복합" if classification.get("is_combination") else "단일"),
-        ("전략 근거",          notes.get("rationale") or classification.get("rationale")),
+        ("전략 근거",          classification.get("rationale")),
     ]
-    warnings = classification.get("warnings") or notes.get("warnings") or []
+    warnings = classification.get("warnings") or []
 
     cls_tbl = doc.add_table(rows=1 + len(cls_rows), cols=2)
     cls_tbl.style = "Table Grid"
@@ -340,7 +347,7 @@ def generate_p2_report(data: dict, output_dir: Path | None = None) -> Path:
             set_cell_shading(c, COLORS["navy"])
         for j, src in enumerate(price_pool_sources, start=1):
             src_tbl.rows[j].cells[0].text = str(src.get("name") or src.get("source") or "—")
-            src_tbl.rows[j].cells[1].text = str(src.get("type") or "—")
+            src_tbl.rows[j].cells[1].text = str(src.get("type") or src.get("origin") or "—")
             src_tbl.rows[j].cells[2].text = str(src.get("note") or src.get("url") or "—")
         doc.add_paragraph("")
 

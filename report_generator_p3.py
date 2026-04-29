@@ -127,11 +127,12 @@ def generate_p3_report(
             contact = (
                 buyer.get("email") or
                 buyer.get("website") or
+                buyer.get("url") or
                 buyer.get("contact") or "—"
             )
             row = list_tbl.rows[ri]
             row.cells[0].text = str(ri)
-            row.cells[1].text = str(buyer.get("company") or buyer.get("name") or "—")
+            row.cells[1].text = str(buyer.get("company") or buyer.get("name") or buyer.get("title") or "—")
             row.cells[2].text = str(buyer.get("country") or "—")
             row.cells[3].text = str(buyer.get("type") or buyer.get("category") or buyer.get("classification") or "—")
             row.cells[4].text = str(contact)[:60]
@@ -145,7 +146,7 @@ def generate_p3_report(
     _sec_hdr(doc, "2. Top 3 바이어 상세 프로파일")
 
     for rank, buyer in enumerate(top3, start=1):
-        company_name = str(buyer.get("company") or buyer.get("name") or f"바이어 {rank}")
+        company_name = str(buyer.get("company") or buyer.get("name") or buyer.get("title") or f"바이어 {rank}")
         _sub_hdr(doc, f"#{rank}  {company_name}")
 
         # 기업 개요 박스 (회색 배경)
@@ -202,6 +203,8 @@ def generate_p3_report(
             contact_info.append(f"이메일: {buyer['email']}")
         if buyer.get("website"):
             contact_info.append(f"웹사이트: {buyer['website']}")
+        elif buyer.get("url"):
+            contact_info.append(f"웹사이트: {buyer['url']}")
         if buyer.get("phone"):
             contact_info.append(f"전화: {buyer['phone']}")
         for ci in contact_info:

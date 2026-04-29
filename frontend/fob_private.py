@@ -298,6 +298,8 @@ _SOURCE_TIER_MAP: dict[str, tuple[int, str]] = {
     "dawaa": (3, "retail"),
     "whites": (3, "retail"),
     "whites_web": (3, "retail"),
+    "rosheta": (3, "retail"),
+    "rosheta_web": (3, "retail"),
     "noon": (3, "retail"),
     "noon_saudi": (3, "retail"),
     "tamer": (3, "retail"),
