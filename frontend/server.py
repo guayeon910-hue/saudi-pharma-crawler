@@ -475,7 +475,7 @@ def _fetch_products_by_ingredient_flexible(sb, ingredient_key: str, limit: int =
 
 def _row_price_local(row: dict) -> Optional[float]:
     """가격 컬럼명 차이 대응."""
-    for fld in ("price_local", "price", "retail_price"):
+    for fld in ("price_local", "price_sar", "price", "retail_price"):
         v = row.get(fld)
         if v is None:
             continue
@@ -494,9 +494,74 @@ def _shape_record_for_dashboard(rec: dict) -> dict:
             out["price"] = float(out["price_local"])
         except (TypeError, ValueError):
             pass
+    if out.get("price_sar") is None:
+        local_price = _row_price_local(out)
+        if local_price is not None and (out.get("currency") or "SAR") == "SAR":
+            out["price_sar"] = local_price
     if "outlier" not in out and "outlier_flagged" in out:
         out["outlier"] = bool(out.get("outlier_flagged"))
     return out
+
+
+def _source_category_for_report(source_name: str, market_segment: str = "") -> str:
+    """Supabase products 행을 1공정 보고서의 source_category로 변환."""
+    key = (source_name or "").strip().lower()
+    segment = (market_segment or "").strip().lower()
+    if any(tok in key for tok in ("nahdi", "whites", "dawaa", "rosheta", "noon", "tamer", "ai_discovered")):
+        return "민간"
+    if any(tok in key for tok in ("sdi", "sfda", "nupco", "etimad")):
+        return "공공조달"
+    if segment in {"retail", "wholesale"}:
+        return "민간"
+    if segment == "tender":
+        return "공공조달"
+    return "규제/제품정보"
+
+
+def _database_rows_to_report_source_results(rows: list[dict]) -> list[dict]:
+    """DB 재조회 결과를 report_generator가 집계할 수 있는 source_results로 변환."""
+    def _safe_conf(value: object) -> Optional[float]:
+        try:
+            return float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for raw in rows or []:
+        row = _shape_record_for_dashboard(raw)
+        source_name = str(row.get("source_name") or "products")
+        category = _source_category_for_report(source_name, row.get("market_segment", ""))
+        price_sar = _row_price_local(row) if (row.get("currency") or "SAR") == "SAR" else None
+        match = {
+            "trade_name": row.get("trade_name", ""),
+            "name": row.get("trade_name", ""),
+            "scientific_name": row.get("scientific_name") or row.get("inn_name") or "",
+            "strength": row.get("strength", ""),
+            "dosage_form": row.get("dosage_form", ""),
+            "price_sar": price_sar,
+            "price": price_sar,
+            "manufacturer": row.get("manufacturer_or_marketing_company") or "",
+            "source_url": row.get("source_url", ""),
+            "confidence": row.get("confidence"),
+            "match_quality": "ingredient",
+        }
+        grouped.setdefault((source_name, category), []).append(match)
+
+    source_results: list[dict] = []
+    for (source_name, category), matches in sorted(grouped.items()):
+        source_url = next((m.get("source_url") for m in matches if m.get("source_url")), "")
+        confs = [_safe_conf(m.get("confidence")) for m in matches]
+        source_results.append(
+            {
+                "source_name": source_name,
+                "source_category": category,
+                "source_url": source_url,
+                "matches": matches,
+                "confidence": max((c for c in confs if c is not None), default=0.85),
+                "error": None,
+            }
+        )
+    return source_results
 
 
 def _parse_ai_product_price(val: object) -> Optional[float]:
@@ -1202,9 +1267,13 @@ def _generate_report_for_pipeline(
         from report_generator import generate_report
 
         if search_data and search_data.get("source") == "database":
+            db_rows = search_data.get("rows", [])
+            source_results = _database_rows_to_report_source_results(
+                db_rows if isinstance(db_rows, list) else []
+            )
             report_data = {
                 "total_matches": search_data.get("count", 0),
-                "source_results": [],
+                "source_results": source_results,
                 "export_feasibility": analysis.get("verdict", ""),
                 "feasibility_rationale": analysis.get("rationale", ""),
                 "search_duration_sec": 0,

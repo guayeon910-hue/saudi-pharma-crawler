@@ -42,6 +42,25 @@ class CrawlErrorType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+_CRAWL_RUN_STATUS_ALIASES = {
+    "success": "succeeded",
+    "succeeded": "succeeded",
+    "failure": "failed",
+    "failed": "failed",
+    "partial": "partial",
+    "running": "running",
+}
+
+
+def normalize_crawl_run_status(status: str | None) -> str:
+    """Return a value accepted by the saudi_crawl_runs.status check constraint."""
+    normalized = (status or "").strip().lower()
+    if normalized not in _CRAWL_RUN_STATUS_ALIASES:
+        logger.warning("알 수 없는 크롤 실행 상태값 %r — failed로 저장", status)
+        return "failed"
+    return _CRAWL_RUN_STATUS_ALIASES[normalized]
+
+
 # ─── 1. 토큰 버킷 (도메인별 레이트 리밋) ──────────────
 class TokenBucket:
     """도메인별 초당 요청 수를 Supabase에서 공유 관리.
@@ -299,11 +318,11 @@ class SourceReputation:
             counts: dict[str, dict[str, int]] = {}
             for row in resp.data:
                 wf = row.get("workflow", "unknown")
-                st = row.get("status", "failure")
+                st = normalize_crawl_run_status(row.get("status", "failed"))
                 if wf not in counts:
                     counts[wf] = {"success": 0, "total": 0}
                 counts[wf]["total"] += 1
-                if st == "success":
+                if st == "succeeded":
                     counts[wf]["success"] += 1
             for wf, c in counts.items():
                 self._scores[wf] = c["success"] / c["total"] if c["total"] > 0 else 0.5
@@ -372,10 +391,11 @@ class CrawlRun:
     def finish(self, status: str, error_summary: str | None = None) -> None:
         if self.run_id is None:
             return
+        db_status = normalize_crawl_run_status(status)
         self.sb.table("saudi_crawl_runs").update(
             {
                 "finished_at": _to_iso(time.time()),
-                "status": status,
+                "status": db_status,
                 "rows_inserted": self.rows_inserted,
                 "rows_updated": self.rows_updated,
                 "error_summary": (error_summary or "")[:2000],

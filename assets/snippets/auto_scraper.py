@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _XPATH_CACHE_PATH = Path(__file__).resolve().parents[2] / "reports" / "cache" / "xpath_patterns.json"
+_XPATH_CACHE_SCHEMA_VERSION = 2  # v2 uses stricter field validators; old entries are regenerated.
 _XPATH_CACHE_MAX_FAILS = 3    # 연속 실패 횟수 상한 — 초과 시 재생성
 _XPATH_CACHE_MAX_ENTRIES = 300  # 캐시 최대 항목 수 (도메인+경로 단위)
 _XPATH_CACHE_LOCK = threading.Lock()  # 동시 read-modify-write 방지
@@ -154,31 +155,118 @@ class SynthesizedScraper:
 # 추출 대상 필드 정의 (의약품 도메인 특화)
 # ---------------------------------------------------------------------------
 
+_PRICE_TOKEN_RE = re.compile(r"(?i)(?:sar|sr|riyal|ر\.س|﷼|usd|\$|€|£)")
+_DOSAGE_UNIT_RE = re.compile(
+    r"(?i)\b\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|ug|g|ml|iu|unit|units|%)\b"
+)
+_RATIO_STRENGTH_RE = re.compile(
+    r"(?i)\b\d+(?:[.,]\d+)?\s*/\s*\d+(?:[.,]\d+)?(?:\s*(?:mg|mcg|µg|ug|g|ml|iu|%))?\b"
+)
+
+
+def _clean_candidate(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _has_alpha(value: str) -> bool:
+    return bool(re.search(r"[A-Za-z\u0600-\u06FF가-힣]", value))
+
+
+def _looks_like_price(value: str) -> bool:
+    s = _clean_candidate(value)
+    if not s:
+        return False
+    has_number = bool(re.search(r"\d+(?:[.,]\d+)?", s))
+    if not has_number:
+        return False
+    if _PRICE_TOKEN_RE.search(s):
+        return True
+    # Plain numeric decimals are often rendered without currency in ecommerce UIs.
+    if re.fullmatch(r"\d{1,5}(?:[.,]\d{1,2})?", s):
+        return True
+    return False
+
+
+def _looks_like_strength(value: str) -> bool:
+    s = _clean_candidate(value)
+    if not s or len(s) > 80:
+        return False
+    if _looks_like_price(s):
+        return False
+    if _DOSAGE_UNIT_RE.search(s) or _RATIO_STRENGTH_RE.search(s):
+        # Product titles often include a strength; avoid learning title nodes as strength.
+        noisy_terms = ("drug product", "tablet", "capsule", "inhaler", "pharma co", "company")
+        return not any(term in s.lower() for term in noisy_terms)
+    return False
+
+
+def _valid_product_name(value: Any) -> bool:
+    s = _clean_candidate(value)
+    if not (3 <= len(s) <= 200) or not _has_alpha(s):
+        return False
+    lower = s.lower()
+    if "company" in lower or "pharma co" in lower:
+        return False
+    return not _looks_like_price(s)
+
+
+def _valid_price(value: Any) -> bool:
+    s = _clean_candidate(value)
+    if not _looks_like_price(s):
+        return False
+    return not (_looks_like_strength(s) and not _PRICE_TOKEN_RE.search(s))
+
+
+def _valid_manufacturer(value: Any) -> bool:
+    s = _clean_candidate(value)
+    if len(s) < 2 or not _has_alpha(s):
+        return False
+    if _looks_like_price(s) or _looks_like_strength(s):
+        return False
+    return True
+
+
+def _valid_active_ingredient(value: Any) -> bool:
+    s = _clean_candidate(value)
+    if len(s) < 3 or not _has_alpha(s):
+        return False
+    if _looks_like_price(s):
+        return False
+    lower = s.lower()
+    if any(term in lower for term in ("drug product", "tablet", "capsule", "inhaler", "pharma co", "company")):
+        return False
+    return True
+
+
+def _valid_strength(value: Any) -> bool:
+    return _looks_like_strength(_clean_candidate(value))
+
+
 PHARMA_FIELDS = [
     {
         "name": "product_name",
         "description": "The product or drug name",
-        "validation": lambda v: isinstance(v, str) and 3 <= len(v) <= 200,
+        "validation": _valid_product_name,
     },
     {
         "name": "price",
         "description": "The product price (numeric value, may include currency symbol like SAR)",
-        "validation": lambda v: bool(re.search(r"\d+\.?\d*", str(v))),
+        "validation": _valid_price,
     },
     {
         "name": "manufacturer",
         "description": "The manufacturer or pharmaceutical company name",
-        "validation": lambda v: isinstance(v, str) and len(v) >= 2,
+        "validation": _valid_manufacturer,
     },
     {
         "name": "active_ingredient",
         "description": "The active pharmaceutical ingredient (API/INN name)",
-        "validation": lambda v: isinstance(v, str) and len(v) >= 3,
+        "validation": _valid_active_ingredient,
     },
     {
         "name": "strength",
         "description": "The drug strength/dosage (e.g., 500mg, 10ml)",
-        "validation": lambda v: bool(re.search(r"\d+", str(v))),
+        "validation": _valid_strength,
     },
 ]
 
@@ -424,6 +512,7 @@ def generate_action_sequence(
             if (
                 cached_entry
                 and cached_entry.get("xpath")
+                and cached_entry.get("schema_version") == _XPATH_CACHE_SCHEMA_VERSION
                 and cached_entry.get("fail_count", 0) < _XPATH_CACHE_MAX_FAILS
             ):
                 cached_xpath = cached_entry["xpath"]
@@ -452,6 +541,7 @@ def generate_action_sequence(
                 if action.verified and action.xpath:
                     domain_cache[fname] = {
                         "xpath": action.xpath,
+                        "schema_version": _XPATH_CACHE_SCHEMA_VERSION,
                         "verified_at": time.time(),
                         "success_count": 1,
                         "fail_count": 0,

@@ -6,7 +6,9 @@ LLM mock 기반으로 논문2 AUTOSCRAPER 알고리즘 검증.
 
 import sys
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -227,11 +229,13 @@ class TestActionSequenceGeneration(unittest.TestCase):
             {"xpath": "//p[@class='strength']/text()", "expected_value": "500mg"},
         ]
 
-        seq = generate_action_sequence(
-            mock_llm,
-            url="https://pharmacy.sa/drugs",
-            html=PRODUCT_HTML,
-        )
+        cache_path = Path(tempfile.mkdtemp()) / "xpath_patterns.json"
+        with patch("assets.snippets.auto_scraper._XPATH_CACHE_PATH", cache_path):
+            seq = generate_action_sequence(
+                mock_llm,
+                url="https://pharmacy.sa/drugs",
+                html=PRODUCT_HTML,
+            )
 
         self.assertEqual(seq.domain, "pharmacy.sa")
         self.assertEqual(len(seq.actions), 5)
@@ -355,11 +359,14 @@ class TestFieldValidation(unittest.TestCase):
         self.assertTrue(v("Panadol Extra"))
         self.assertFalse(v(""))
         self.assertFalse(v("ab"))  # 3자 미만
+        self.assertFalse(v("Saudi Pharma Co"))
 
     def test_price_validation(self):
         v = PHARMA_FIELDS[1]["validation"]
         self.assertTrue(v("SAR 12.50"))
         self.assertTrue(v("8.75"))
+        self.assertFalse(v("Drug Product 500mg"))
+        self.assertFalse(v("500mg"))
         self.assertFalse(v("free"))
         self.assertFalse(v(""))
 
@@ -367,13 +374,25 @@ class TestFieldValidation(unittest.TestCase):
         v = PHARMA_FIELDS[2]["validation"]
         self.assertTrue(v("GSK"))
         self.assertTrue(v("Julphar"))
+        self.assertFalse(v("SAR 25.00"))
         self.assertFalse(v(""))
         self.assertFalse(v("A"))  # 2자 미만
+
+    def test_active_ingredient_validation(self):
+        v = PHARMA_FIELDS[3]["validation"]
+        self.assertTrue(v("Paracetamol"))
+        self.assertTrue(v("Omega-3-Acid Ethyl Esters 90"))
+        self.assertFalse(v("Saudi Pharma Co"))
+        self.assertFalse(v("Drug Product 500mg"))
+        self.assertFalse(v("SAR 25.00"))
 
     def test_strength_validation(self):
         v = PHARMA_FIELDS[4]["validation"]
         self.assertTrue(v("500mg"))
         self.assertTrue(v("120mg/5ml"))
+        self.assertTrue(v("250/50"))
+        self.assertFalse(v("SAR 25.00"))
+        self.assertFalse(v("Drug Product 500mg"))
         self.assertFalse(v("unknown"))
 
 

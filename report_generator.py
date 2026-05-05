@@ -135,6 +135,13 @@ def generate_report(
         except (TypeError, ValueError):
             return ""
 
+    def _price_sar(match: dict[str, Any]) -> Any:
+        for key in ("price_sar", "price_local", "price", "retail_price"):
+            value = match.get(key)
+            if value not in (None, ""):
+                return value
+        return ""
+
     if isinstance(drug, dict):
         trade_name = drug.get("trade_name", "Unknown")
         ingredient = drug.get("ingredient", "")
@@ -444,12 +451,13 @@ def generate_report(
         for i, h in enumerate(["품목", "성분", "함량", "SAR", "USD", "KRW"]):
             ap.rows[0].cells[i].text = h
         for ri, m in enumerate(sfda_matches[:8], start=1):
+            p_sar = _price_sar(m)
             ap.rows[ri].cells[0].text = str(m.get("trade_name", ""))
             ap.rows[ri].cells[1].text = str(m.get("scientific_name", ""))
             ap.rows[ri].cells[2].text = str(m.get("strength", ""))
-            ap.rows[ri].cells[3].text = str(m.get("price_sar", ""))
-            ap.rows[ri].cells[4].text = _to_usd(m.get("price_sar"))
-            ap.rows[ri].cells[5].text = _to_krw(m.get("price_sar"))
+            ap.rows[ri].cells[3].text = str(p_sar)
+            ap.rows[ri].cells[4].text = _to_usd(p_sar)
+            ap.rows[ri].cells[5].text = _to_krw(p_sar)
 
     retail_matches = []
     for sr in source_results if isinstance(source_results, list) else []:
@@ -464,7 +472,7 @@ def generate_report(
         for i, h in enumerate(["상품", "SAR", "USD", "KRW", "출처"]):
             rp.rows[0].cells[i].text = h
         for ri, m in enumerate(retail_matches[:8], start=1):
-            p_sar = m.get("price_sar", m.get("price", ""))
+            p_sar = _price_sar(m)
             rp.rows[ri].cells[0].text = str(m.get("name", m.get("trade_name", "")))
             rp.rows[ri].cells[1].text = str(p_sar)
             rp.rows[ri].cells[2].text = _to_usd(p_sar)

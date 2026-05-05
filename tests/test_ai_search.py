@@ -7,7 +7,9 @@ test_ai_search.py — AI 자율 서칭 통합 테스트
 import sys
 import os
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 from dataclasses import dataclass
 
@@ -174,10 +176,12 @@ class TestProcessOneDrug(unittest.TestCase):
         mock_http = MagicMock()
         drug = _make_drug()
 
-        result = process_one_drug(
-            drug, mock_llm, mock_http,
-            dry_run=True, fetch_delay=0,
-        )
+        cache_path = Path(tempfile.mkdtemp()) / "xpath_patterns.json"
+        with patch("assets.snippets.auto_scraper._XPATH_CACHE_PATH", cache_path):
+            result = process_one_drug(
+                drug, mock_llm, mock_http,
+                dry_run=True, fetch_delay=0,
+            )
 
         self.assertEqual(result.drug_name, "Panadol")
         self.assertIsNotNone(result.discovery)
@@ -316,16 +320,18 @@ class TestFullSimulation(unittest.TestCase):
 
         summary = AISearchSummary()
 
-        for drug in drugs:
-            result = process_one_drug(
-                drug, mock_llm, mock_http,
-                dry_run=True, fetch_delay=0,
-            )
-            summary.drug_results.append(result)
-            summary.drugs_processed += 1
-            if result.discovery:
-                summary.total_sources_valid += result.discovery.get("valid_count", 0)
-            summary.total_records += result.records_extracted
+        cache_path = Path(tempfile.mkdtemp()) / "xpath_patterns.json"
+        with patch("assets.snippets.auto_scraper._XPATH_CACHE_PATH", cache_path):
+            for drug in drugs:
+                result = process_one_drug(
+                    drug, mock_llm, mock_http,
+                    dry_run=True, fetch_delay=0,
+                )
+                summary.drug_results.append(result)
+                summary.drugs_processed += 1
+                if result.discovery:
+                    summary.total_sources_valid += result.discovery.get("valid_count", 0)
+                summary.total_records += result.records_extracted
 
         # 검증
         self.assertEqual(summary.drugs_processed, 8)

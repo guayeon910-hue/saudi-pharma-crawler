@@ -234,7 +234,7 @@ def main() -> int:
     )
     run.start()
 
-    overall_status = "success"
+    overall_status = "succeeded"
     error_lines: list[str] = []
 
     for name, cfg in targets:
@@ -349,9 +349,9 @@ def main() -> int:
             error_lines.append(f"{name}: {type(e).__name__}")
             overall_status = "partial"
 
-    # 전 소스 실패면 failure, 일부 실패면 partial, 전부 성공이면 success
+    # 전 소스 실패면 failed, 일부 실패면 partial, 전부 성공이면 succeeded
     if overall_status == "partial" and run.rows_inserted == 0 and run.rows_updated == 0:
-        overall_status = "failure"
+        overall_status = "failed"
 
     run.finish(overall_status, error_summary="; ".join(error_lines) if error_lines else None)
     logger.info(
@@ -360,7 +360,7 @@ def main() -> int:
     )
 
     # Actions가 Slack 알림을 띄우려면 non-zero exit 필요
-    return 0 if overall_status == "success" else 1
+    return 0 if overall_status == "succeeded" else 1
 
 
 if __name__ == "__main__":
