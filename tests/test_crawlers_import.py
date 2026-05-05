@@ -29,6 +29,7 @@ print("=== A. 크롤러 모듈 임포트 검증 ===\n")
 
 crawlers_to_test = [
     "crawlers.sfda_api",
+    "crawlers.sdi_sfda",
     "crawlers.sfda_drugs_list_html",
     "crawlers.sfda_companies",
     "crawlers.nupco_tenders",
@@ -181,7 +182,7 @@ print("\n=== F. main.py dispatch table 검증 (stub 제거 확인) ===\n")
 # main.py에서 CRAWLERS dict를 직접 검증하기 어려우므로
 # 모든 소스명에 대해 import 가능한지 확인
 all_sources = [
-    "sfda_api", "sfda_drugs_list_html", "sfda_companies",
+    "sfda_api", "sdi_sfda", "sfda_drugs_list_html", "sfda_companies",
     "nupco_tenders", "etimad_api", "nahdi_web",
     "al_dawaa_web", "whites_web", "tamer_group", "noon_saudi",
 ]

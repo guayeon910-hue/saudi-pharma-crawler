@@ -15,6 +15,13 @@ SITES: list[dict] = [
         "category": "공공조달",
     },
     {
+        "key": "sdi_sfda",
+        "name": "SDI",
+        "domain": "sdi.sfda.gov.sa",
+        "hint": "Saudi Drugs Information System",
+        "category": "공공조달",
+    },
+    {
         "key": "nupco",
         "name": "NUPCO",
         "domain": "nupco.com",

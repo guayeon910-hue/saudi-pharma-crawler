@@ -49,6 +49,32 @@ sources:
     circuit_breaker_threshold: 5
     workflow: sa_api_light
 
+  sdi_sfda:
+    tier: 1
+    access_method: api_first
+    auth: none
+    url_seed: "https://sdi.sfda.gov.sa/Home/DrugSearch"
+    mirror_endpoint: "https://www.sfda.gov.sa/GetDrugsSearch3.php"
+    purpose: regulatory_master
+    fields_covered:
+      - regulatory_id
+      - trade_name
+      - scientific_name
+      - strength
+      - dosage_form
+      - price_sar
+      - manufacturer_or_marketing_company
+      - agent_or_supplier
+      - atc_code
+    fallback_for: sfda_api
+    cron_slot: "15 22 * * *"
+    confidence_default: 0.90
+    state_storage: saudi_selector_cache
+    rate_limit_qps: 0.5
+    circuit_breaker_threshold: 5
+    workflow: sa_api_light
+    notes: "SDI 원본 도메인은 일부 환경에서 TLS reset이 발생해 SFDA 공개 JSON 미러를 우선 사용."
+
   sfda_drugs_list_html:
     tier: 1
     access_method: html_static
@@ -237,7 +263,7 @@ toggles:
   toggle_1:
     purpose: regulatory_master
     description: "SFDA 공식 등록 데이터 동기화"
-    sources: [sfda_api, sfda_drugs_list_html, sfda_companies]
+    sources: [sfda_api, sdi_sfda, sfda_drugs_list_html, sfda_companies]
 
   toggle_2:
     purpose: retail_prices
@@ -267,7 +293,7 @@ toggles:
   toggle_7:
     purpose: strict_mode
     description: "robots 엄격·fallback만·confidence 보수적"
-    sources: [sfda_api, sfda_drugs_list_html]
+    sources: [sfda_api, sdi_sfda, sfda_drugs_list_html]
 
   toggle_8:
     purpose: exploratory

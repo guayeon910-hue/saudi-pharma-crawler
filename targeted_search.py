@@ -99,6 +99,7 @@ class AggregatedResult:
 
 SOURCE_CATEGORIES = {
     "sfda_api":             "공공조달",
+    "sdi_sfda":             "규제/제품정보",
     "sfda_drugs_list_html": "공공조달",
     "sfda_companies":       "공공조달",
     "nupco_tenders":        "공공조달",
@@ -325,6 +326,54 @@ def _search_sfda(drug: TargetDrug, keywords: dict) -> SearchResult:
     except Exception as e:
         result.error = str(e)
         logger.error(f"SFDA 검색 전체 실패: {e}")
+
+    return result
+
+
+def _search_sdi(drug: TargetDrug, keywords: dict) -> SearchResult:
+    """Saudi Drugs Information System search via SFDA public JSON mirror."""
+    result = SearchResult(
+        source_name="sdi_sfda",
+        source_category="규제/제품정보",
+        source_url="https://sdi.sfda.gov.sa/Home/DrugSearch",
+    )
+    all_matches: list[dict] = []
+    seen_ids: set[str] = set()
+    ingredient_names = keywords.get("ingredient_names", [])
+
+    try:
+        from crawlers.sdi_sfda import SDISFDAClient, map_sdi_to_schema
+
+        with SDISFDAClient(delay=0.5) as client:
+            trade_name = keywords["trade_name"]
+            result.queries_used.append(f"TradeName={trade_name}")
+            try:
+                for item in client.search(trade_name=trade_name, max_pages=2):
+                    rid = str(item.get("registerNumber") or item.get("drugId") or "")
+                    if rid in seen_ids:
+                        continue
+                    seen_ids.add(rid)
+                    all_matches.append(normalize_record(map_sdi_to_schema(item)))
+            except Exception as exc:
+                logger.warning("SDI trade_name 검색 실패: %s", exc)
+
+            for name in _ingredient_search_terms(keywords):
+                result.queries_used.append(f"ScientificName={name}")
+                try:
+                    for item in client.search(scientific_name=name, max_pages=5):
+                        rid = str(item.get("registerNumber") or item.get("drugId") or "")
+                        if rid in seen_ids:
+                            continue
+                        seen_ids.add(rid)
+                        all_matches.append(normalize_record(map_sdi_to_schema(item)))
+                except Exception as exc:
+                    logger.warning("SDI scientific_name 검색 실패 (%s): %s", name, exc)
+
+        result.matches = _filter_relevant_matches(all_matches, ingredient_names)
+        result.confidence = 0.90 if result.matches else 0.0
+    except Exception as exc:
+        result.error = str(exc)
+        logger.error("SDI 검색 전체 실패: %s", exc)
 
     return result
 
@@ -825,24 +874,32 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 매칭 ({r.search_time_sec:.1f}초)")
 
-    # ─── 2. SFDA 제약사 ───
-    logger.info("[2/7] SFDA 제약사 검색...")
+    # ─── 2. Saudi Drugs Information System ───
+    logger.info("[2/9] SDI 의약품 정보 검색...")
+    t = time.time()
+    r = _search_sdi(drug, keywords)
+    r.search_time_sec = time.time() - t
+    results.append(r)
+    logger.info(f"  → {len(r.matches)}건 매칭 ({r.search_time_sec:.1f}초)")
+
+    # ─── 3. SFDA 제약사 ───
+    logger.info("[3/9] SFDA 제약사 검색...")
     t = time.time()
     r = _search_sfda_companies(drug, keywords)
     r.search_time_sec = time.time() - t
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 매칭 ({r.search_time_sec:.1f}초)")
 
-    # ─── 3. NUPCO 텐더 ───
-    logger.info("[3/7] NUPCO 텐더 검색...")
+    # ─── 4. NUPCO 텐더 ───
+    logger.info("[4/9] NUPCO 텐더 검색...")
     t = time.time()
     r = _search_nupco(drug, keywords)
     r.search_time_sec = time.time() - t
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 매칭 ({r.search_time_sec:.1f}초)")
 
-    # ─── 4. Etimad ───
-    logger.info("[4/7] Etimad 검색...")
+    # ─── 5. Etimad ───
+    logger.info("[5/9] Etimad 검색...")
     t = time.time()
     r = _search_etimad(drug, keywords)
     r.search_time_sec = time.time() - t
@@ -852,8 +909,8 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     else:
         logger.info(f"  → {len(r.matches)}건")
 
-    # ─── 5. Nahdi (소매, Algolia API) ───
-    logger.info("[5/7] Nahdi 약국 검색 (Algolia API)...")
+    # ─── 6. Nahdi (소매, Algolia API) ───
+    logger.info("[6/9] Nahdi 약국 검색 (Algolia API)...")
     t = time.time()
     try:
         r = _search_nahdi(drug, keywords)
@@ -864,8 +921,8 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
 
-    # ─── 6. Whites (소매, Akinon) ───
-    logger.info("[6/8] Whites 약국 검색...")
+    # ─── 7. Whites (소매, Akinon) ───
+    logger.info("[7/9] Whites 약국 검색...")
     t = time.time()
     try:
         r = _search_whites(drug, keywords)
@@ -876,8 +933,8 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
 
-    # ─── 7. Rosheta Saudi ───
-    logger.info("[7/8] Rosheta 검색...")
+    # ─── 8. Rosheta Saudi ───
+    logger.info("[8/9] Rosheta 검색...")
     t = time.time()
     try:
         r = _search_rosheta(drug, keywords)
@@ -888,7 +945,7 @@ def search_one_drug(drug: TargetDrug, skip_blocked: bool = True) -> AggregatedRe
     results.append(r)
     logger.info(f"  → {len(r.matches)}건 ({r.error or 'OK'})")
 
-    # ─── 8. 차단/비활성 소스 (상태만 기록) ───
+    # ─── 9. 차단/비활성 소스 (상태만 기록) ───
     if skip_blocked:
         for name, url, reason in [
             ("al_dawaa_web", "https://www.al-dawaa.com", "Cloudflare 차단 (403)"),
