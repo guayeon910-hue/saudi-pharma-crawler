@@ -47,44 +47,47 @@ BASE_DELAY = 2.0
 # 프롬프트
 # ---------------------------------------------------------------------------
 
-SEARCH_SYSTEM_PROMPT = """You are a pharmaceutical business development expert specializing in Saudi Arabia/KSA.
-Your task is to identify potential buyer or distributor companies for Korean pharmaceutical products entering the Saudi market.
+SEARCH_SYSTEM_PROMPT = """You are a business development expert specializing in Saudi Arabia/KSA
+for pharmaceuticals, nutraceuticals, dietary supplements, and health-functional food products.
+Your task is to identify potential buyer or distributor companies for Korean products entering the Saudi market.
 Return ONLY a valid JSON array. No explanation, no markdown, no code fences."""
 
-SEARCH_USER_TEMPLATE = """Find Saudi Arabian pharmaceutical importers, distributors, or hospital procurement agencies that could be buyers for this Korean drug:
-- Drug: {trade_name}
-- Active Ingredients: {ingredients}
+SEARCH_USER_TEMPLATE = """Find Saudi Arabian pharmaceutical, nutraceutical, supplement, health product importers,
+distributors, pharmacy chains, or procurement agencies that could be buyers for this Korean product:
+- Product: {trade_name}
+- Active / Functional Ingredients: {ingredients}
 - Dosage Form: {dosage_form}
 - Strength: {strength}
 
-Focus on: licensed importers, SFDA-registered distributors, NUPCO-approved suppliers, hospital group procurement offices, pharmacy chains, and Saudi pharmaceutical companies that actively in-license or distribute partner products.
-If drug-specific buyers are scarce, include credible general Saudi pharmaceutical distributors or procurement targets that could onboard a new Korean product after regulatory review.
+Focus on: licensed importers, SFDA-registered distributors, supplement and health product distributors, pharmacy chains, NUPCO-approved suppliers when relevant, hospital group procurement offices when relevant, and Saudi companies that actively in-license or distribute partner products.
+If product-specific buyers are scarce, include credible Saudi pharmaceutical, nutraceutical, or supplement distributors that could onboard a new Korean product after regulatory review.
 
 Exclude these already-known domains: {excluded}
 
 Return a JSON array of 15 to 20 objects when possible. Each object must have:
 - "url": company website URL (homepage or product page)
 - "title": full company name
-- "description": 1-2 sentences about what this company does and why it is relevant as a buyer/distributor for this drug
+- "description": 1-2 sentences about what this company does and why it is relevant as a buyer/distributor for this product
 - "category": one of "importer", "distributor", "hospital_group", "pharmacy_chain", "government_procurement", "other"
-- "has_price_data": boolean — true if website shows drug prices
-- "has_product_listing": boolean — true if website lists this or similar drugs
+- "has_price_data": boolean — true if website shows product prices
+- "has_product_listing": boolean — true if website lists this or similar products
 - "language": "en", "ar", or "mixed"
-- "relevance_score": float 0.0–1.0 reflecting how likely this company could distribute this drug in Saudi Arabia
+- "relevance_score": float 0.0–1.0 reflecting how likely this company could distribute this product in Saudi Arabia
 
 Return ONLY the JSON array, no other text. Do not return fewer than 10 objects unless fewer than 10 credible Saudi buyer targets exist."""
 
-REFERENCE_SYSTEM_PROMPT = """You are a pharmaceutical market research assistant.
-Find concise, citable web references for Saudi Arabia pharmaceutical market analysis.
+REFERENCE_SYSTEM_PROMPT = """You are a market research assistant.
+Find concise, citable web references for Saudi Arabia pharmaceutical, nutraceutical,
+dietary supplement, and health-functional food market analysis.
 Return ONLY a valid JSON array. No explanation, no markdown, no code fences."""
 
-REFERENCE_USER_TEMPLATE = """Find citable sources for this Saudi Arabia/KSA pharmaceutical market report:
-- Drug: {trade_name}
-- Active Ingredients: {ingredients}
+REFERENCE_USER_TEMPLATE = """Find citable sources for this Saudi Arabia/KSA product market report:
+- Product: {trade_name}
+- Active / Functional Ingredients: {ingredients}
 - Dosage Form: {dosage_form}
 - Strength: {strength}
 
-Prioritize official or high-signal sources: SFDA drug registration/price pages, Saudi pharmacy product pages, public procurement pages, clinical or regulatory references.
+Prioritize official or high-signal sources: SFDA drug/food/supplement regulatory pages, Saudi pharmacy or supplement product pages, public procurement pages when relevant, clinical, safety, ingredient, or regulatory references.
 
 Return a JSON array of up to 8 objects. Each object must have:
 - "url": source URL

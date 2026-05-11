@@ -50,6 +50,7 @@ const INN_MAP = {
   'gadvoa-inj':         'Gadobutrol 604mg',
   'sereterol-activair': 'Fluticasone / Salmeterol',
   'omethyl-cutielet':   'Omega-3 EE 2g',
+  'agatri':             'Agastache rugosa extract',
   'rosumeg-combigel':   'Rosuvastatin + Omega-3',
   'atmeg-combigel':     'Atorvastatin + Omega-3',
   'ciloduo':            'Cilostazol + Rosuvastatin',

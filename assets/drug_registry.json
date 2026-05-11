@@ -149,5 +149,26 @@
     ],
     "added_at": "2026-04-12T08:12:02.085130+00:00",
     "source": "excel"
+  },
+  {
+    "id": "agatri",
+    "drug_type": "Health functional food / inner beauty ingredient",
+    "trade_name": "Agatri",
+    "ingredient": "Agastache rugosa extract powder",
+    "strength": "1 g/day; skin moisture and UV-induced skin damage support",
+    "dosage_form": "Ingredient powder; tablet, powder, liquid, jelly",
+    "target_countries": [
+      "Saudi Arabia",
+      "GCC",
+      "South Korea",
+      "United States"
+    ],
+    "target_regions": [
+      "Middle East/GCC",
+      "Asia",
+      "North America"
+    ],
+    "added_at": "2026-05-11T00:00:00+09:00",
+    "source": "manual"
   }
 ]

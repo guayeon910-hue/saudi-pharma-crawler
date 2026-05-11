@@ -486,6 +486,44 @@ def _row_price_local(row: dict) -> Optional[float]:
     return None
 
 
+def _is_health_functional_product(drug: TargetDrug) -> bool:
+    text = " ".join(
+        str(v or "")
+        for v in (drug.drug_type, drug.trade_name, drug.ingredient, drug.dosage_form)
+    ).lower()
+    markers = (
+        "health functional",
+        "functional food",
+        "inner beauty",
+        "nutraceutical",
+        "dietary supplement",
+        "supplement",
+        "agatri",
+        "agastache",
+        "baechohyang",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _analysis_market_context(drug: TargetDrug) -> str:
+    if _is_health_functional_product(drug):
+        return (
+            "Treat this target as a health functional food / nutraceutical ingredient, "
+            "not as a prescription drug. For Saudi Arabia, analyze the SFDA food, "
+            "dietary supplement, health claim, import, labeling, halal, and GCC "
+            "distribution route. Do not mark the product unsuitable only because it "
+            "does not appear in the Saudi drug register. If direct Saudi retail price "
+            "data is unavailable, estimate cautiously from comparable skin health, "
+            "collagen, beauty-from-within, and supplement products, and state the "
+            "evidence gap."
+        )
+    return (
+        "Treat this target as a pharmaceutical product. Use Saudi drug registration, "
+        "procurement, pharmacy price, distribution, and comparable-ingredient evidence "
+        "as the primary decision basis."
+    )
+
+
 def _shape_record_for_dashboard(rec: dict) -> dict:
     """JSON 스냅샷(`price`, `outlier`)과 Supabase `products`(`price_local`, `outlier_flagged`) 병합 시 UI 필드 통일."""
     out = dict(rec)
@@ -940,6 +978,7 @@ def _analyze_single_product(
     # 크롤링 데이터 요약
     crawl_summary = _summarize_crawl_data(drug, search_data)
     price_summary = _summarize_price_data(price_data)
+    market_context = _analysis_market_context(drug)
 
     prompt = f"""사우디아라비아(KSA) 의약품 시장 진출 적합성을 분석해주세요.
 
@@ -949,6 +988,9 @@ def _analyze_single_product(
 - 함량: {drug.strength}
 - 제형: {drug.dosage_form}
 - 종류: {drug.drug_type}
+
+## Product-specific decision context
+{market_context}
 
 ## 크롤링 수집 데이터 요약
 {crawl_summary}

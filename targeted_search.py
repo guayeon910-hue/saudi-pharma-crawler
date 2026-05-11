@@ -113,6 +113,25 @@ SOURCE_CATEGORIES = {
 }
 
 
+def _is_health_functional_product(drug: TargetDrug) -> bool:
+    text = " ".join(
+        str(v or "")
+        for v in (drug.drug_type, drug.trade_name, drug.ingredient, drug.dosage_form)
+    ).lower()
+    markers = (
+        "health functional",
+        "functional food",
+        "inner beauty",
+        "nutraceutical",
+        "dietary supplement",
+        "supplement",
+        "agatri",
+        "agastache",
+        "baechohyang",
+    )
+    return any(marker in text for marker in markers)
+
+
 # ─── 성분 매칭/검색어 보강 ─────────────────────────────────
 
 _INGREDIENT_STOP_TOKENS = {
@@ -747,6 +766,22 @@ def _determine_feasibility(
     sfda_matches = []
     for r in sfda_results:
         sfda_matches.extend(r.matches)
+
+    if not sfda_matches and _is_health_functional_product(drug):
+        evidence_urls = [
+            m.get("url") or m.get("source_url") or r.source_url
+            for r in results
+            for m in r.matches
+            if m.get("match_quality") == "ingredient"
+        ]
+        return (
+            "조건부",
+            f"{drug.trade_name} is configured as a health functional food / nutraceutical target, "
+            "so absence from the Saudi drug register should not be treated as a direct rejection. "
+            "Review the SFDA food or dietary supplement pathway, health-claim substantiation, "
+            "labeling, halal/import requirements, and comparable Saudi supplement distribution data.",
+            evidence_urls[:5],
+        )
 
     if not sfda_matches:
         retail_matches = []

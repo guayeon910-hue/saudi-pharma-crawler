@@ -85,7 +85,7 @@ class DiscoveredSource:
     title: str = ""
     description: str = ""
     relevance_score: float = 0.0     # 0.0~1.0 LLM 판별 점수
-    category: str = ""               # pharma_retailer | pharma_regulator | distributor | hospital | news | other
+    category: str = ""               # pharma_retailer | supplement_retailer | regulator | distributor | hospital | news | other
     has_price_data: bool = False
     has_product_listing: bool = False
     language: str = ""               # en | ar | mixed
@@ -155,31 +155,32 @@ EXCLUDED_DOMAINS = {
 # 검색 쿼리 생성 (LLM)
 # ---------------------------------------------------------------------------
 
-QUERY_SYSTEM_PROMPT = """You are a pharmaceutical market research assistant.
-Generate search queries to find NEW online sources of pharmaceutical/drug information
-specific to Saudi Arabia. Focus on:
-- Online pharmacies and drug retailers in Saudi Arabia
-- Saudi pharmaceutical distributors and wholesalers
-- Saudi hospital pharmacy formularies
-- Saudi drug pricing databases
-- Saudi pharmaceutical regulatory databases (beyond SFDA)
+QUERY_SYSTEM_PROMPT = """You are a Saudi market research assistant for pharmaceuticals,
+nutraceuticals, dietary supplements, and health-functional food ingredients.
+Generate search queries to find NEW online sources of product, price, regulatory,
+and distributor information specific to Saudi Arabia. Focus on:
+- Online pharmacies, supplement retailers, and drug retailers in Saudi Arabia
+- Saudi pharmaceutical, nutraceutical, and supplement distributors/wholesalers
+- Saudi hospital pharmacy formularies when the target is a medicine
+- Saudi drug, supplement, and health product pricing databases
+- Saudi pharmaceutical, food, supplement, and health product regulatory databases
 
 Return ONLY a JSON array of 5 search query strings. No explanation."""
 
-QUERY_USER_TEMPLATE = """Generate 5 Google search queries to find Saudi Arabian pharmaceutical sources
-for this drug:
+QUERY_USER_TEMPLATE = """Generate 5 Google search queries to find Saudi Arabian pharmaceutical,
+nutraceutical, dietary supplement, or health-functional food sources for this product:
 
-Drug: {trade_name}
-Active Ingredients: {ingredients}
+Product: {trade_name}
+Active / Functional Ingredients: {ingredients}
 Dosage Form: {dosage_form}
 Strength: {strength}
 
 The queries should help find:
-1. Saudi online pharmacies selling this drug or similar products
-2. Saudi pharmaceutical price comparison sites
-3. Saudi drug distributors carrying this ingredient
-4. Saudi hospital formularies listing this drug class
-5. Regional/GCC pharmaceutical databases
+1. Saudi online pharmacies or supplement retailers selling this or similar products
+2. Saudi pharmaceutical/supplement price comparison sites
+3. Saudi importers or distributors carrying this ingredient/category
+4. Saudi regulatory, food, supplement, or hospital formulary references as applicable
+5. Regional/GCC pharmaceutical, nutraceutical, or supplement databases
 
 Return JSON array of 5 query strings. Each query MUST include "Saudi" or "KSA" or "سعودية".
 Prefer sources in Saudi Arabia (.sa) or GCC; do NOT optimize for Philippines, India, or Southeast Asia pharmacies.
@@ -231,9 +232,9 @@ def _fallback_queries(drug_info: dict) -> list[str]:
 
     return [
         f"{name} site:.sa pharmacy price SAR",
-        f"{first_ingredient} Saudi Arabia pharmacy buy online",
-        f"{first_ingredient} price Saudi Arabia SAR",
-        f"{first_ingredient} {form} KSA pharmaceutical",
+        f"{first_ingredient} Saudi Arabia supplement pharmacy buy online",
+        f"{first_ingredient} price Saudi Arabia SAR supplement",
+        f"{first_ingredient} {form} KSA pharmaceutical nutraceutical",
         f"صيدلية {name} السعودية سعر",
     ]
 
@@ -449,27 +450,29 @@ def fetch_page_html(
 # LLM 사이트 판별
 # ---------------------------------------------------------------------------
 
-EVALUATE_SYSTEM_PROMPT = """You are a pharmaceutical market research analyst evaluating websites
-for relevance to the Saudi Arabian pharmaceutical market.
+EVALUATE_SYSTEM_PROMPT = """You are a market research analyst evaluating websites
+for relevance to the Saudi Arabian pharmaceutical, nutraceutical, supplement,
+and health-functional food market.
 
 Evaluate the provided website snippet and return a JSON object with these fields:
-- relevance_score: float 0.0-1.0 (how relevant to Saudi pharma market research)
-- category: one of "pharma_retailer", "pharma_regulator", "distributor", "hospital", "price_database", "news", "other"
-- has_price_data: boolean (does the site show drug prices?)
-- has_product_listing: boolean (does the site list pharmaceutical products?)
+- relevance_score: float 0.0-1.0 (how relevant to Saudi product market research)
+- category: one of "pharma_retailer", "supplement_retailer", "pharma_regulator", "food_regulator", "distributor", "hospital", "price_database", "news", "other"
+- has_price_data: boolean (does the site show product prices?)
+- has_product_listing: boolean (does the site list pharmaceutical, supplement, or health products?)
 - language: "en", "ar", or "mixed"
 - reason: brief explanation of your assessment (1 sentence)
 
 Scoring guide:
-- 0.9-1.0: Saudi pharma retailer/regulator with product listings and prices
-- 0.7-0.8: Saudi pharma-related site with partial data (prices OR listings)
-- 0.5-0.6: Pharma-related but not Saudi-specific, or limited data
+- 0.9-1.0: Saudi pharma/supplement retailer or regulator with product listings and prices
+- 0.7-0.8: Saudi pharma/supplement-related site with partial data (prices OR listings)
+- 0.5-0.6: Pharma/supplement-related but not Saudi-specific, or limited data
 - 0.3-0.4: Tangentially related (general health, news)
 - 0.0-0.2: Not relevant
 
 Return ONLY the JSON object."""
 
-EVALUATE_USER_TEMPLATE = """Evaluate this website for Saudi pharmaceutical market research:
+EVALUATE_USER_TEMPLATE = """Evaluate this website for Saudi pharmaceutical, nutraceutical,
+or supplement market research:
 
 URL: {url}
 Domain: {domain}
