@@ -48,7 +48,7 @@ sys.path.insert(0, str(ROOT))
 
 from drug_registry import DrugRegistry, TargetDrug
 from targeted_search import search_one_drug, AggregatedResult, _annotate_match
-from frontend.buyer_sources import curated_buyer_candidates
+from frontend.buyer_sources import curated_buyer_candidates, registrable_domain_from_url
 from frontend.dashboard_sites import SITES, get_initial_states
 from frontend.fob_private import run_private_pipeline, run_public_pipeline
 
@@ -486,6 +486,102 @@ def _row_price_local(row: dict) -> Optional[float]:
     return None
 
 
+def _looks_like_source_url(value: object) -> bool:
+    try:
+        parsed = urlparse(str(value or "").strip())
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _price_sample(
+    *,
+    trade_name: object,
+    price: object,
+    source: object = "",
+    source_url: object = "",
+    currency: object = "SAR",
+    ingredient: object = "",
+    strength: object = "",
+    sample_type: object = "",
+    observed_at: object = "",
+) -> Optional[dict]:
+    try:
+        price_f = float(price)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if price_f <= 0:
+        return None
+
+    url = str(source_url or "").strip()
+    verified = _looks_like_source_url(url)
+    return {
+        "trade_name": str(trade_name or ""),
+        "price": price_f,
+        "currency": str(currency or "SAR"),
+        "source": str(source or ""),
+        "source_url": url,
+        "ingredient": str(ingredient or ""),
+        "strength": str(strength or ""),
+        "type": str(sample_type or ""),
+        "observed_at": str(observed_at or ""),
+        "is_verified_price": verified,
+        "verification_status": "observed_with_source_url" if verified else "observed_missing_source_url",
+    }
+
+
+def _price_lookup_key(trade_name: object, price: object) -> tuple[str, float] | None:
+    try:
+        price_f = round(float(price), 4)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    name = re.sub(r"\s+", " ", str(trade_name or "").strip().lower())
+    if not name or price_f <= 0:
+        return None
+    return (name, price_f)
+
+
+def _known_price_source_urls(search_data: Optional[dict]) -> dict[tuple[str, float], str]:
+    lookup: dict[tuple[str, float], str] = {}
+    if not isinstance(search_data, dict):
+        return lookup
+
+    rows = search_data.get("rows") if search_data.get("source") == "database" else []
+    for row in rows or []:
+        price = row.get("price") if row.get("price") is not None else row.get("price_local")
+        key = _price_lookup_key(row.get("trade_name"), price)
+        url = str(row.get("source_url") or "").strip()
+        if key and _looks_like_source_url(url):
+            lookup[key] = url
+
+    for sr in search_data.get("source_results", []) or []:
+        sr_url = str(sr.get("source_url") or "").strip()
+        for match in sr.get("matches", []) or []:
+            price = match.get("price_sar") or match.get("price") or match.get("retail_price")
+            key = _price_lookup_key(match.get("trade_name") or match.get("name"), price)
+            url = str(match.get("source_url") or match.get("url") or sr_url).strip()
+            if key and _looks_like_source_url(url):
+                lookup[key] = url
+    return lookup
+
+
+def _annotate_price_verification(samples: list[dict], search_data: Optional[dict]) -> None:
+    lookup = _known_price_source_urls(search_data)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    for sample in samples:
+        key = _price_lookup_key(sample.get("trade_name"), sample.get("price"))
+        url = str(sample.get("source_url") or "").strip()
+        if not _looks_like_source_url(url) and key in lookup:
+            url = lookup[key]
+            sample["source_url"] = url
+        verified = _looks_like_source_url(url)
+        sample["is_verified_price"] = verified
+        sample["verification_status"] = (
+            "observed_with_source_url" if verified else "observed_missing_source_url"
+        )
+        sample["verification_checked_at"] = checked_at
+
+
 def _is_health_functional_product(drug: TargetDrug) -> bool:
     text = " ".join(
         str(v or "")
@@ -538,6 +634,12 @@ def _shape_record_for_dashboard(rec: dict) -> dict:
             out["price_sar"] = local_price
     if "outlier" not in out and "outlier_flagged" in out:
         out["outlier"] = bool(out.get("outlier_flagged"))
+    if _row_price_local(out) is not None:
+        verified_price = _looks_like_source_url(out.get("source_url"))
+        out["is_verified_price"] = verified_price
+        out["verification_status"] = (
+            "observed_with_source_url" if verified_price else "observed_missing_source_url"
+        )
     return out
 
 
@@ -1177,18 +1279,27 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
                     except (ValueError, TypeError):
                         pass
 
-    price_values = [p["price"] for p in prices if p.get("price")]
-    comp_values = [p["price"] for p in competitor_prices if p.get("price")]
+    _annotate_price_verification(prices, search_data)
+    _annotate_price_verification(competitor_prices, search_data)
+
+    verified_prices = [p for p in prices if p.get("is_verified_price")]
+    verified_competitors = [p for p in competitor_prices if p.get("is_verified_price")]
+    price_values = [p["price"] for p in verified_prices if p.get("price")]
+    comp_values = [p["price"] for p in verified_competitors if p.get("price")]
 
     return {
         "same_ingredient": prices,
         "competitors": competitor_prices[:10],
         "summary": {
             "count": len(price_values),
+            "raw_count": len(prices),
+            "verified_count": len(verified_prices),
+            "unverified_count": max(0, len(prices) - len(verified_prices)),
             "min": min(price_values) if price_values else None,
             "max": max(price_values) if price_values else None,
             "avg": round(sum(price_values) / len(price_values), 2) if price_values else None,
             "competitor_avg": round(sum(comp_values) / len(comp_values), 2) if comp_values else None,
+            "competitor_verified_count": len(verified_competitors),
         },
         "estimated": None,
     }
@@ -1222,7 +1333,7 @@ def _summarize_crawl_data(drug: TargetDrug, search_data: Optional[dict] = None) 
     return "\n".join(lines) if lines else "데이터 없음"
 
 
-def _summarize_price_data(price_data: dict) -> str:
+def _summarize_price_data_legacy(price_data: dict) -> str:
     """가격 비교 데이터를 텍스트로 요약."""
     s = price_data.get("summary", {})
     if not s.get("count"):
@@ -1248,6 +1359,42 @@ def _summarize_price_data(price_data: dict) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # 참고문헌 검색 (Perplexity)
 # ═══════════════════════════════════════════════════════════════════════════
+
+def _summarize_price_data(price_data: dict) -> str:
+    """Summarize only source-verified prices for the Claude prompt."""
+    s = price_data.get("summary", {})
+    if not s.get("count"):
+        raw_count = int(s.get("raw_count") or 0)
+        if raw_count:
+            return (
+                f"출처 URL로 검증된 가격 데이터 없음. "
+                f"원시 가격 후보 {raw_count}건은 출처 확인 전 데이터로만 보관합니다."
+            )
+        return "가격 데이터 없음 - 동일 성분 제품의 사우디 시장 가격을 찾지 못했습니다."
+
+    lines = [
+        f"- 출처 URL 검증 가격 데이터: {s['count']}건",
+        f"- 원시 가격 후보: {s.get('raw_count', s['count'])}건 / 미검증 제외: {s.get('unverified_count', 0)}건",
+        f"- 가격 범위: {s['min']:.2f} ~ {s['max']:.2f} SAR" if s.get("min") else "",
+        f"- 평균 가격: {s['avg']:.2f} SAR" if s.get("avg") else "",
+    ]
+    if s.get("competitor_avg"):
+        lines.append(f"- 유사 제형 경쟁제품 평균: {s['competitor_avg']:.2f} SAR")
+
+    top_prices = [
+        p for p in price_data.get("same_ingredient", [])
+        if p.get("is_verified_price")
+    ][:5]
+    if top_prices:
+        lines.append("- 주요 검증 비교 제품:")
+        for p in top_prices:
+            lines.append(
+                f"  - {p.get('trade_name', 'N/A')} / {p.get('price', 'N/A')} SAR "
+                f"({p.get('source', '')}, {p.get('source_url', '')})"
+            )
+
+    return "\n".join(l for l in lines if l)
+
 
 def _fetch_references(drug: TargetDrug) -> list[dict]:
     """Perplexity로 논문/참고자료 검색."""
@@ -1881,15 +2028,9 @@ async def api_news():
 
 
 def _p3_base_domain_for_dedupe(url: str) -> str:
-    """Perplexity 클라이언트와 동일하게 netloc 기준 2레벨 도메인으로 중복 판별."""
+    """등록 가능 도메인 기준으로 중복 판별(.com.sa 같은 2단계 suffix 보정 포함)."""
     try:
-        netloc = urlparse(url.strip()).netloc.lower()
-        if netloc.startswith("www."):
-            netloc = netloc[4:]
-        parts = netloc.split(".")
-        if len(parts) >= 2:
-            return ".".join(parts[-2:])
-        return netloc or ""
+        return registrable_domain_from_url(url.strip())
     except Exception:
         return ""
 
@@ -1982,6 +2123,7 @@ def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict])
         b = _p3_base_domain_for_dedupe(u)
         if not b or b in seen:
             continue
+        item["base_domain"] = b
         seen.add(b)
         merged.append(item)
     for item in perplexity_items:
@@ -1990,9 +2132,123 @@ def _merge_p3_prospect_lists(db_items: list[dict], perplexity_items: list[dict])
         b = _p3_base_domain_for_dedupe(u)
         if not b or b in seen:
             continue
+        item["base_domain"] = b
         seen.add(b)
         merged.append(item)
     return merged[:50]
+
+
+_P3_BLOCKED_PROSPECT_DOMAINS = {
+    "example.com",
+    "example.org",
+    "example.net",
+    "google.com",
+    "bing.com",
+    "duckduckgo.com",
+    "wikipedia.org",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "x.com",
+    "twitter.com",
+}
+
+
+def _p3_live_url_check(url: str) -> tuple[bool, int | None, str]:
+    """Return (reachable, status_code, final_url) for a prospect website."""
+    import httpx
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+        )
+    }
+    try:
+        with httpx.Client(follow_redirects=True, timeout=6.0, headers=headers) as client:
+            try:
+                resp = client.head(url)
+            except httpx.HTTPError:
+                resp = client.get(url)
+            if resp.status_code in {403, 405} or resp.status_code >= 500:
+                try:
+                    resp = client.get(url)
+                except httpx.HTTPError:
+                    pass
+            return 200 <= resp.status_code < 400, resp.status_code, str(resp.url)
+    except Exception:
+        return False, None, url
+
+
+def _verify_p3_prospect_items(
+    items: list[dict],
+    *,
+    max_live_checks: int = 24,
+) -> list[dict]:
+    """Drop obvious hallucinated buyer candidates and annotate kept items."""
+    verified: list[dict] = []
+    live_checks = 0
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    for raw in items:
+        item = _normalize_p3_prospect(raw)
+        url = str(item.get("url") or "").strip()
+        parsed = urlparse(url)
+        base_domain = _p3_base_domain_for_dedupe(url)
+        source = str(item.get("source") or "").strip()
+        is_curated = source == "curated_saudi_buyer_seed"
+
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or not base_domain:
+            continue
+        if base_domain in _P3_BLOCKED_PROSPECT_DOMAINS:
+            continue
+        title = str(item.get("title") or item.get("company") or item.get("name") or "").strip()
+        if not title:
+            continue
+
+        item["base_domain"] = base_domain
+        item["verification_checked_at"] = checked_at
+        item["candidate_origin"] = source or "ai_or_database"
+
+        live_ok = False
+        status_code: int | None = None
+        final_url = url
+        if live_checks < max_live_checks:
+            live_checks += 1
+            live_ok, status_code, final_url = _p3_live_url_check(url)
+
+        item["verification_url"] = final_url
+        if status_code is not None:
+            item["verification_http_status"] = status_code
+
+        if live_ok:
+            item["verified"] = True
+            item["verification_status"] = "verified_live_website"
+        elif is_curated:
+            item["verified"] = True
+            item["verification_status"] = "curated_seed_domain_valid_live_check_failed"
+        else:
+            continue
+
+        reasons = item.get("reasons")
+        if isinstance(reasons, list):
+            item["reasons"] = [
+                *reasons,
+                f"Buyer website verification: {item['verification_status']} ({item.get('verification_url', url)})",
+            ]
+        elif reasons:
+            item["reasons"] = [
+                str(reasons),
+                f"Buyer website verification: {item['verification_status']} ({item.get('verification_url', url)})",
+            ]
+        else:
+            item["reasons"] = [
+                f"Buyer website verification: {item['verification_status']} ({item.get('verification_url', url)})"
+            ]
+
+        verified.append(item)
+
+    return verified[:50]
 
 
 @app.post("/api/p3/prospects")
@@ -2036,13 +2292,15 @@ async def api_p3_prospects(req: P3ProspectsRequest):
     curated_sources = curated_buyer_candidates(drug_info, limit=30)
     if not pplx:
         merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
         return {
             "ok": True,
-            "count": len(merged),
-            "items": merged,
+            "count": len(verified),
+            "items": verified,
             "ai_count": 0,
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
+            "unverified_dropped": len(merged) - len(verified),
             "warning": "PERPLEXITY_API_KEY is not configured; curated Saudi buyer seeds were used.",
         }
 
@@ -2058,24 +2316,28 @@ async def api_p3_prospects(req: P3ProspectsRequest):
             reverse=True,
         )
         merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+        verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
         return {
             "ok": True,
-            "count": len(merged),
-            "items": merged,
+            "count": len(verified),
+            "items": verified,
             "ai_count": len(items_sorted),
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
+            "unverified_dropped": len(merged) - len(verified),
         }
     except Exception as exc:
         logger.warning("P3 prospects Perplexity 실패, curated buyer seeds 사용: %s", exc)
         merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
         return {
             "ok": True,
-            "count": len(merged),
-            "items": merged,
+            "count": len(verified),
+            "items": verified,
             "ai_count": 0,
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
+            "unverified_dropped": len(merged) - len(verified),
             "warning": f"Perplexity search failed; curated Saudi buyer seeds were used. {str(exc)[:120]}",
         }
 
@@ -2852,13 +3114,15 @@ async def buyers_run(req: BuyersRunRequest):
                 warning = "PERPLEXITY_API_KEY is not configured; curated Saudi buyer seeds were used."
 
             merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+            verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
             result_payload = {
                 "ok": True,
-                "count": len(merged),
-                "items": merged,
+                "count": len(verified),
+                "items": verified,
                 "ai_count": len(items_sorted),
                 "curated_count": len(curated_sources),
                 "db_count": len(db_sources),
+                "unverified_dropped": len(merged) - len(verified),
             }
             if warning:
                 result_payload["warning"] = warning
@@ -2869,7 +3133,7 @@ async def buyers_run(req: BuyersRunRequest):
             # P3 보고서 자동 생성
             try:
                 from report_generator_p3 import generate_p3_report
-                p3_path = generate_p3_report(merged, trade_name or ingredients, ROOT / "reports")
+                p3_path = generate_p3_report(verified, trade_name or ingredients, ROOT / "reports")
                 _p3_report_cache["latest"] = p3_path.name
             except Exception:
                 logger.exception("P3 보고서 자동 생성 실패")

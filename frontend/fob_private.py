@@ -246,6 +246,8 @@ def _dedupe_price_samples(raw_items: list[dict]) -> list[dict]:
     deduped: list[dict] = []
     seen: set[tuple[str, str, float]] = set()
     for item in raw_items:
+        if item.get("is_verified_price") is False:
+            continue
         price = _safe_float(item.get("price"))
         if price is None or price <= 0:
             continue
@@ -263,6 +265,9 @@ def _dedupe_price_samples(raw_items: list[dict]) -> list[dict]:
                 "strength": str(item.get("strength") or "").strip(),
                 "price": float(price),
                 "source": str(item.get("source") or "").strip(),
+                "source_url": str(item.get("source_url") or item.get("url") or "").strip(),
+                "is_verified_price": item.get("is_verified_price"),
+                "verification_status": str(item.get("verification_status") or "").strip(),
                 "type": str(item.get("type") or "").strip(),
             }
         )
@@ -361,6 +366,9 @@ def _collect_price_pool(report_data: dict) -> list[dict]:
                     "strength": item.get("strength") or report_data.get("strength") or "",
                     "price": item.get("price") or item.get("price_sar") or item.get("retail_price"),
                     "source": item.get("source") or key,
+                    "source_url": item.get("source_url") or item.get("url") or "",
+                    "is_verified_price": item.get("is_verified_price"),
+                    "verification_status": item.get("verification_status") or "",
                     "type": item.get("type") or key,
                 }
             )

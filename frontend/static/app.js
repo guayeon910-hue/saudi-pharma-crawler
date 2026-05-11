@@ -480,6 +480,9 @@ function _buildReportFullBlob(result) {
     price:      (typeof r.price === 'number') ? r.price : null,
     currency:   r.currency || 'SAR',
     source:     r.source   || '',
+    source_url: r.source_url || r.url || '',
+    is_verified_price: !!r.is_verified_price,
+    verification_status: r.verification_status || '',
     type:       r.type     || '',
   }));
   return {

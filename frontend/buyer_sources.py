@@ -237,6 +237,17 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
 ]
 
 
+MULTI_LABEL_PUBLIC_SUFFIXES = {
+    "com.sa",
+    "net.sa",
+    "org.sa",
+    "gov.sa",
+    "edu.sa",
+    "med.sa",
+    "sch.sa",
+}
+
+
 THERAPEUTIC_TERMS: dict[str, tuple[str, ...]] = {
     "oncology": (
         "oncology",
@@ -290,15 +301,39 @@ THERAPEUTIC_TERMS: dict[str, tuple[str, ...]] = {
         "injection",
         "vial",
     ),
+    "inner_beauty": (
+        "agatri",
+        "agastache",
+        "baechohyang",
+        "skin",
+        "beauty",
+        "collagen",
+        "moisture",
+        "uv",
+        "supplement",
+        "nutraceutical",
+        "functional food",
+        "dietary",
+    ),
 }
 
 
-def _base_domain(url: str) -> str:
-    host = urlparse(url).netloc.lower().removeprefix("www.")
+def registrable_domain_from_host(host: str) -> str:
+    host = (host or "").strip().lower().removeprefix("www.")
     parts = host.split(".")
+    if len(parts) >= 3 and ".".join(parts[-2:]) in MULTI_LABEL_PUBLIC_SUFFIXES:
+        return ".".join(parts[-3:])
     if len(parts) >= 2:
         return ".".join(parts[-2:])
     return host
+
+
+def registrable_domain_from_url(url: str) -> str:
+    return registrable_domain_from_host(urlparse(url or "").netloc)
+
+
+def _base_domain(url: str) -> str:
+    return registrable_domain_from_url(url)
 
 
 def _product_text(drug_info: dict[str, Any]) -> str:
@@ -324,6 +359,8 @@ def infer_product_tags(drug_info: dict[str, Any]) -> set[str]:
         tags.add("retail")
     if "inhal" in text:
         tags.update({"respiratory", "retail"})
+    if {"inner_beauty"} & tags:
+        tags.update({"retail", "pharmacy_chain", "general"})
     if not tags:
         tags.add("general")
     return tags
