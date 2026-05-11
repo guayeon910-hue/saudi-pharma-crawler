@@ -1052,6 +1052,10 @@ def _analyze_single_product(
         "product_id": drug.id,
         "trade_name": drug.trade_name,
         "inn": drug.ingredient,
+        "ingredient": drug.ingredient,
+        "dosage_form": drug.dosage_form,
+        "strength": drug.strength,
+        "drug_type": drug.drug_type,
         "verdict": "분석실패",
         "confidence": 0.0,
         "rationale": "",
@@ -1195,6 +1199,7 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
                         "price": pl,
                         "currency": row.get("currency", "SAR"),
                         "source": row.get("source_name", ""),
+                        "source_url": row.get("source_url") or row.get("url") or row.get("product_url") or "",
                         "ingredient": _row_ingredient_label(row),
                         "strength": row.get("strength", ""),
                         "type": "동일성분",
@@ -1255,6 +1260,7 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
                         "price": _row_price_local(row),
                         "ingredient": _row_ingredient_label(row),
                         "source": row.get("source_name", ""),
+                        "source_url": row.get("source_url") or row.get("url") or row.get("product_url") or "",
                         "type": "유사제형",
                     })
         except Exception as e:
@@ -1274,6 +1280,7 @@ def _collect_price_data(drug: TargetDrug, search_data: Optional[dict] = None) ->
                             "price": float(p),
                             "currency": "SAR",
                             "source": sr.get("source_name", ""),
+                            "source_url": m.get("source_url") or m.get("url") or sr.get("url") or "",
                             "type": "크롤링",
                         })
                     except (ValueError, TypeError):

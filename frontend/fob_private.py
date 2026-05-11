@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -54,6 +55,8 @@ SFDA_REG_FEE_INNOVATIVE = 115_000.0
 
 DEFAULT_AGENT_COMMISSION_RANGE = (0.03, 0.10)
 DEFAULT_REGULATORY_ASSUMPTIONS = {"annual_units": 10_000, "monthly_shipments": 2}
+DEFAULT_HEALTH_FUNCTIONAL_BENCHMARK_SAR = 135.0
+DEFAULT_HEALTH_FUNCTIONAL_BENCHMARK_SPREAD = 0.30
 
 FREIGHT_INS_DEFAULT = {
     "solid": 3.0,
@@ -274,6 +277,113 @@ def _dedupe_price_samples(raw_items: list[dict]) -> list[dict]:
     return deduped
 
 
+def _is_health_functional_report(report_data: dict) -> bool:
+    text = " ".join(
+        str(report_data.get(key) or "")
+        for key in (
+            "trade_name",
+            "product_id",
+            "inn",
+            "ingredient",
+            "dosage_form",
+            "drug_type",
+            "product_type",
+            "case_type",
+        )
+    ).lower()
+    markers = (
+        "health functional",
+        "functional food",
+        "inner beauty",
+        "nutraceutical",
+        "dietary supplement",
+        "supplement",
+        "agatri",
+        "agastache",
+        "baechohyang",
+        "oral sunscreen",
+        "beauty from within",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _price_range_from_report_estimate(report_data: dict) -> tuple[float, float, float] | None:
+    comparison = report_data.get("price_comparison") or {}
+    estimated = comparison.get("estimated") if isinstance(comparison, dict) else None
+    if not isinstance(estimated, dict):
+        estimated = {}
+
+    avg = (
+        _safe_float(report_data.get("estimated_avg_sar"))
+        or _safe_float(estimated.get("avg_sar"))
+        or _safe_float(estimated.get("avg"))
+    )
+    if avg is None or avg <= 0:
+        return None
+
+    low = (
+        _safe_float(report_data.get("estimated_min_sar"))
+        or _safe_float(estimated.get("min_sar"))
+        or _safe_float(estimated.get("min"))
+        or avg * 0.80
+    )
+    high = (
+        _safe_float(report_data.get("estimated_max_sar"))
+        or _safe_float(estimated.get("max_sar"))
+        or _safe_float(estimated.get("max"))
+        or avg * 1.20
+    )
+    low = max(0.01, min(float(low), float(avg)))
+    high = max(float(avg), float(high))
+    return (low, float(avg), high)
+
+
+def _health_functional_benchmark_range() -> tuple[float, float, float]:
+    midpoint = (
+        _safe_float(os.environ.get("AGATRI_BENCHMARK_SAR"))
+        or _safe_float(os.environ.get("HEALTH_FUNCTIONAL_BENCHMARK_SAR"))
+        or DEFAULT_HEALTH_FUNCTIONAL_BENCHMARK_SAR
+    )
+    low = _safe_float(os.environ.get("AGATRI_BENCHMARK_LOW_SAR"))
+    high = _safe_float(os.environ.get("AGATRI_BENCHMARK_HIGH_SAR"))
+    spread = DEFAULT_HEALTH_FUNCTIONAL_BENCHMARK_SPREAD
+    if low is None or low <= 0:
+        low = midpoint * (1.0 - spread)
+    if high is None or high <= 0:
+        high = midpoint * (1.0 + spread)
+    low = max(0.01, min(float(low), float(midpoint)))
+    high = max(float(midpoint), float(high))
+    return (low, float(midpoint), high)
+
+
+def _append_estimated_price_range(
+    deduped: list[dict],
+    report_data: dict,
+    price_range: tuple[float, float, float],
+    *,
+    source: str,
+    status: str,
+) -> None:
+    labels = ("benchmark_low", "benchmark_mid", "benchmark_high")
+    trade_name = str(report_data.get("trade_name") or report_data.get("product_id") or "estimated benchmark")
+    strength = str(report_data.get("strength") or "")
+    for label, price in zip(labels, price_range):
+        if price <= 0:
+            continue
+        deduped.append(
+            {
+                "trade_name": f"{trade_name} {label}",
+                "strength": strength,
+                "price": float(price),
+                "source": source,
+                "source_url": "",
+                "is_verified_price": False,
+                "verification_status": status,
+                "type": "estimated_benchmark",
+            }
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 가격 출처 tier 분류 (Cloudflare 편향 투명성 — Phase 2)
 #
@@ -313,6 +423,8 @@ _SOURCE_TIER_MAP: dict[str, tuple[int, str]] = {
     "report_data": (0, "self"),
     "selected": (0, "self"),
     "estimated": (0, "estimated"),
+    "phase1_estimated": (0, "estimated"),
+    "health_functional_benchmark": (0, "estimated"),
     "same_ingredient": (0, "unknown"),
     "competitors": (0, "unknown"),
     "크롤링": (0, "unknown"),
@@ -337,7 +449,7 @@ def _classify_source(source_str: str) -> tuple[int, str]:
         return (3, "retail")
     if "report" in key or "selected" in key:
         return (0, "self")
-    if "estimate" in key or "추정" in key:
+    if "estimate" in key or "benchmark" in key or "추정" in key or "벤치마크" in key:
         return (0, "estimated")
     return (0, "unknown")
 
@@ -375,17 +487,26 @@ def _collect_price_pool(report_data: dict) -> list[dict]:
 
     deduped = _dedupe_price_samples(raw_items)
 
-    # Fallback: DB/크롤 가격이 전혀 없으면 1공정 Claude 추정가를 단일 기준점으로 사용
+    # Fallback: 직접 검증 가격이 없으면 P1 추정 범위 또는 건강기능식품 벤치마크를
+    # 명시적으로 "미검증 추정"으로 분리해 사용한다.
     if not deduped:
-        est = _safe_float(report_data.get("estimated_avg_sar"))
-        if est and est > 0:
-            deduped.append({
-                "trade_name": str(report_data.get("trade_name") or report_data.get("product_id") or ""),
-                "strength":   str(report_data.get("strength") or ""),
-                "price":      est,
-                "source":     "estimated",
-                "type":       "estimated",
-            })
+        estimated_range = _price_range_from_report_estimate(report_data)
+        if estimated_range:
+            _append_estimated_price_range(
+                deduped,
+                report_data,
+                estimated_range,
+                source="phase1_estimated",
+                status="phase1_estimated_no_direct_source",
+            )
+        elif _is_health_functional_report(report_data):
+            _append_estimated_price_range(
+                deduped,
+                report_data,
+                _health_functional_benchmark_range(),
+                source="health_functional_benchmark",
+                status="benchmark_no_direct_source",
+            )
 
     # ── tier/origin 메타데이터 부여 (Phase 2-1) ──
     for item in deduped:
@@ -465,6 +586,10 @@ def _analyze_pool_diversity(price_pool: list[dict]) -> dict:
     if self_count > 0 and (retail_count + public_count + procurement_count) == 0:
         warnings_list.append(
             "⚠️ 자체/추정 가격만 존재 — 외부 시장 검증 불가. 결과를 참고용으로만 사용"
+        )
+    if self_count > 0 and self_count == sum(origin_counter.values()):
+        warnings_list.append(
+            "직접 검증된 SAR 가격 샘플이 없어 추정/벤치마크 가격으로 계산했습니다."
         )
 
     return {
@@ -553,6 +678,9 @@ def _build_competitor_stats(price_pool: list[dict]) -> dict:
             "용량 파싱 오류 또는 통화 혼입 가능성"
         )
 
+    origins = {str(item.get("origin") or "unknown") for item in price_pool}
+    estimated_only = bool(price_pool) and origins.issubset({"estimated"})
+
     return {
         "count": count,
         "min": _round_money(values[0]),
@@ -566,6 +694,8 @@ def _build_competitor_stats(price_pool: list[dict]) -> dict:
         "outliers_removed": [_round_money(v) for v in outliers_removed],
         "sample_count_before_filter": len(values_all),
         "sample_count_after_filter": count,
+        "estimated_only": estimated_only,
+        "price_source_label": "추정 소매 벤치마크" if estimated_only else "경쟁제품 소매가",
     }
 
 
@@ -1058,13 +1188,22 @@ def _enrich_pdf_report_from_text(text: str, report: dict, llm: Any | None) -> tu
 def _normalize_report_source(report_data: dict | None, pdf_bytes: bytes | None, llm: Any | None) -> tuple[dict, list[str]]:
     notes: list[str] = []
     if report_data:
+        comparison = report_data.get("price_comparison") or {}
+        estimated = comparison.get("estimated") if isinstance(comparison, dict) else None
+        if not isinstance(estimated, dict):
+            estimated = {}
         return {
             "trade_name": report_data.get("trade_name") or report_data.get("product_name") or report_data.get("product_id") or "Unknown",
             "inn": report_data.get("inn") or report_data.get("ingredient") or "",
+            "ingredient": report_data.get("ingredient") or report_data.get("inn") or "",
+            "drug_type": report_data.get("drug_type") or report_data.get("product_type") or "",
             "dosage_form": report_data.get("dosage_form") or "",
             "strength": report_data.get("strength") or "",
             "price_sar": report_data.get("price_sar"),
             "price_comparison": report_data.get("price_comparison") or {},
+            "estimated_min_sar": report_data.get("estimated_min_sar") or estimated.get("min_sar"),
+            "estimated_avg_sar": report_data.get("estimated_avg_sar") or estimated.get("avg_sar"),
+            "estimated_max_sar": report_data.get("estimated_max_sar") or estimated.get("max_sar"),
             "hs_code": report_data.get("hs_code"),
         }, notes
 
@@ -1154,15 +1293,21 @@ def _run_market_fob_pipeline(
     diversity = _analyze_pool_diversity(price_pool)
 
     notes = list(source_notes)
+    is_health_functional = _is_health_functional_report(product)
     if market_type == "public":
         notes.append(
             "공공 시장 역산은 NUPCO/SFDA 등 참고 가격 분포와 조달 입찰 통행을 모델링한 벤치마크입니다. "
             "실제 입찰가·계약 조건과 다를 수 있습니다."
         )
-    notes.append("HS 3004 적격 의약품은 VAT 0%·관세 0%를 기본 가정으로 사용합니다.")
-    hs_code = str(product.get("hs_code") or "").strip()
-    if not hs_code or "3004" not in hs_code:
-        notes.append("HS 코드가 3004로 확인되지 않았습니다. VAT 0%·관세 0% 가정이 맞는지 재확인하세요.")
+    if is_health_functional:
+        notes.append(
+            "Agatri/건강기능식품 원료는 의약품 HS 3004·약가 제도와 다를 수 있어 VAT, 관세, SFDA 식품/보충제 요건을 별도 확인해야 합니다."
+        )
+    else:
+        notes.append("HS 3004 적격 의약품은 VAT 0%·관세 0%를 기본 가정으로 사용합니다.")
+        hs_code = str(product.get("hs_code") or "").strip()
+        if not hs_code or "3004" not in hs_code:
+            notes.append("HS 코드가 3004로 확인되지 않았습니다. VAT 0%·관세 0% 가정이 맞는지 재확인하세요.")
 
     warnings = list(classification.get("warnings") or [])
     if competitor_stats.get("warning"):
@@ -1189,9 +1334,16 @@ def _run_market_fob_pipeline(
         annual_units=DEFAULT_REGULATORY_ASSUMPTIONS["annual_units"],
     )
 
-    ref_price_label = (
-        "공공 조달 참고 가격대" if market_type == "public" else "경쟁사 소매가"
-    )
+    if competitor_stats.get("estimated_only"):
+        ref_price_label = competitor_stats.get("price_source_label") or "추정 소매 벤치마크"
+        notes.append(
+            "직접 검증된 SAR 판매가가 없어 1공정 추정가 또는 건강기능식품 벤치마크 가격대로 역산했습니다. "
+            "이 값은 실제 Agatri 판매가가 아니라 제안가 검토용 기준입니다."
+        )
+    else:
+        ref_price_label = (
+            "공공 조달 참고 가격대" if market_type == "public" else "경쟁사 소매가"
+        )
 
     response_scenarios: dict[str, dict] = {}
     for name, config in scenarios.items():

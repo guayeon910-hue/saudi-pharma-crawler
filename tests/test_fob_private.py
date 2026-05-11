@@ -140,3 +140,79 @@ def test_run_private_pipeline_handles_negative_fob():
     for scenario in result["scenarios"].values():
         assert scenario["fob_sar"] is None
         assert scenario["error"]
+
+
+def test_run_private_pipeline_uses_phase1_estimate_when_direct_prices_missing():
+    report = {
+        "trade_name": "Agatri",
+        "inn": "Agastache rugosa extract",
+        "drug_type": "Health functional food / inner beauty ingredient",
+        "dosage_form": "powder",
+        "price_comparison": {
+            "same_ingredient": [],
+            "competitors": [],
+            "estimated": {
+                "min_sar": 80.0,
+                "avg_sar": 120.0,
+                "max_sar": 160.0,
+                "basis": "Comparable skin health supplement benchmark",
+            },
+        },
+    }
+
+    result = run_private_pipeline(
+        report_data=report,
+        pdf_bytes=None,
+        overrides=None,
+        exchange_rates=STATIC_RATES,
+        llm=None,
+    )
+
+    assert result["ok"] is True
+    assert result["competitor_stats"]["estimated_only"] is True
+    assert result["competitor_stats"]["min"] == pytest.approx(80.0)
+    assert result["competitor_stats"]["avg"] == pytest.approx(120.0)
+    assert result["competitor_stats"]["max"] == pytest.approx(160.0)
+    assert any(src["source"] == "phase1_estimated" for src in result["price_pool_sources"])
+    assert any("직접 검증된 SAR" in note for note in result["notes"])
+
+
+def test_run_public_pipeline_uses_agatri_benchmark_when_no_price_exists():
+    report = {
+        "trade_name": "Agatri",
+        "ingredient": "Agastache rugosa extract",
+        "drug_type": "Health functional food / inner beauty ingredient",
+        "dosage_form": "powder",
+        "price_comparison": {"same_ingredient": [], "competitors": []},
+    }
+
+    result = run_public_pipeline(
+        report_data=report,
+        pdf_bytes=None,
+        overrides=None,
+        exchange_rates=STATIC_RATES,
+        llm=None,
+    )
+
+    assert result["ok"] is True
+    assert result["market_type"] == "public"
+    assert result["competitor_stats"]["estimated_only"] is True
+    assert result["competitor_stats"]["count"] == 3
+    assert any(src["source"] == "health_functional_benchmark" for src in result["price_pool_sources"])
+    assert any("건강기능식품" in note for note in result["notes"])
+
+
+def test_run_private_pipeline_still_rejects_non_benchmark_report_without_prices():
+    with pytest.raises(ValueError):
+        run_private_pipeline(
+            report_data={
+                "trade_name": "NoPrice",
+                "inn": "Samplepril",
+                "dosage_form": "tablet",
+                "price_comparison": {"same_ingredient": [], "competitors": []},
+            },
+            pdf_bytes=None,
+            overrides=None,
+            exchange_rates=STATIC_RATES,
+            llm=None,
+        )
