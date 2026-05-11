@@ -106,6 +106,7 @@ def test_p3_verifier_keeps_curated_seed_with_verification_metadata():
     verified = _verify_p3_prospect_items(curated, max_live_checks=0)
 
     assert len(verified) == 1
-    assert verified[0]["verified"] is True
+    assert verified[0]["verified"] is False
+    assert verified[0]["needs_manual_verification"] is True
     assert verified[0]["verification_status"]
     assert verified[0]["base_domain"]

@@ -2225,7 +2225,8 @@ def _verify_p3_prospect_items(
             item["verified"] = True
             item["verification_status"] = "verified_live_website"
         elif is_curated:
-            item["verified"] = True
+            item["verified"] = False
+            item["needs_manual_verification"] = True
             item["verification_status"] = "curated_seed_domain_valid_live_check_failed"
         else:
             continue
