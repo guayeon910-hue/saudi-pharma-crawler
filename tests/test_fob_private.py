@@ -202,6 +202,61 @@ def test_run_public_pipeline_uses_agatri_benchmark_when_no_price_exists():
     assert any("건강기능식품" in note for note in result["notes"])
 
 
+def test_run_private_pipeline_uses_agatri_benchmark_when_no_price_exists():
+    report = {
+        "trade_name": "Agatri",
+        "ingredient": "Agastache rugosa extract",
+        "drug_type": "Health functional food / inner beauty ingredient",
+        "dosage_form": "powder",
+        "price_comparison": {"same_ingredient": [], "competitors": []},
+    }
+
+    result = run_private_pipeline(
+        report_data=report,
+        pdf_bytes=None,
+        overrides=None,
+        exchange_rates=STATIC_RATES,
+        llm=None,
+    )
+
+    assert result["ok"] is True
+    assert result["market_type"] == "private"
+    assert result["competitor_stats"]["estimated_only"] is True
+    assert any(src["source"] == "health_functional_benchmark" for src in result["price_pool_sources"])
+
+
+def test_agatri_unverified_price_samples_fall_back_to_health_benchmark():
+    report = {
+        "trade_name": "Agatri",
+        "ingredient": "Agastache rugosa extract",
+        "drug_type": "Health functional food / inner beauty ingredient",
+        "dosage_form": "powder",
+        "price_comparison": {
+            "same_ingredient": [
+                {
+                    "trade_name": "Unverified Agatri",
+                    "price": 999.0,
+                    "source": "ai",
+                    "is_verified_price": False,
+                }
+            ],
+            "competitors": [],
+        },
+    }
+
+    result = run_private_pipeline(
+        report_data=report,
+        pdf_bytes=None,
+        overrides=None,
+        exchange_rates=STATIC_RATES,
+        llm=None,
+    )
+
+    assert result["ok"] is True
+    assert result["competitor_stats"]["max"] < 999.0
+    assert any(src["source"] == "health_functional_benchmark" for src in result["price_pool_sources"])
+
+
 def test_run_private_pipeline_still_rejects_non_benchmark_report_without_prices():
     with pytest.raises(ValueError):
         run_private_pipeline(

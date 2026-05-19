@@ -391,6 +391,7 @@ function _renderCustomTodos(state) {
 
 const REPORTS_LS_KEY = 'sa_upharma_reports_v1';
 const REPORTS_FULL_LS_KEY = 'sa_upharma_reports_full_v1';
+const P2_DONE_LS_KEY = 'sa_upharma_p2_done_v1';
 
 /** _addReportEntry 직후 연속 동일 호출 방지(ms 이내 동일 품목·PDF) */
 let _lastReportDedupe = { fp: '', t: 0 };
@@ -445,6 +446,32 @@ function _loadReportFull(id) {
   return store[String(id)] || null;
 }
 
+function _loadP2DoneStore() {
+  try { return JSON.parse(localStorage.getItem(P2_DONE_LS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function _saveP2DoneStore(store) {
+  localStorage.setItem(P2_DONE_LS_KEY, JSON.stringify(store || {}));
+}
+
+function _p2MarkReportDone(reportId, data) {
+  if (!reportId) return;
+  const store = _loadP2DoneStore();
+  store[String(reportId)] = {
+    timestamp: Date.now(),
+    market_type: data?.market_type || '',
+    estimated_only: !!data?.competitor_stats?.estimated_only,
+    product: data?.product?.trade_name || '',
+  };
+  _saveP2DoneStore(store);
+}
+
+function _p2IsReportDone(reportId) {
+  const store = _loadP2DoneStore();
+  return !!store[String(reportId)];
+}
+
 function _loadReports() {
   try   { return JSON.parse(localStorage.getItem(REPORTS_LS_KEY) || '[]'); }
   catch { return []; }
@@ -491,6 +518,7 @@ function _buildReportFullBlob(result) {
   }));
   return {
     trade_name:  result.trade_name  || result.product_id || '',
+    product_id:  result.product_id  || '',
     ingredient:  result.inn         || result.ingredient || '',
     drug_type:   result.drug_type   || result.product_type || '',
     strength:    result.strength    || '',
@@ -1673,6 +1701,8 @@ function recalcP2Col(col) {
 function renderP2Result(data) {
   const sec = document.getElementById('p2-ai-result-section');
   if (!sec) return;
+  const detailWrap = document.getElementById('p2-product-list-wrap');
+  if (detailWrap) detailWrap.style.display = '';
 
   const stats = data.competitor_stats || {};
   const product = data.product || {};
@@ -1749,6 +1779,10 @@ function renderP2Result(data) {
       classification.is_combination ? '복합제' : '단일 성분',
       classification.is_extended_release ? '서방형/개량신약' : '표준 제형',
     ].filter(Boolean);
+    const confidenceLabel = stats.estimated_only
+      ? '신뢰도 낮음 · 직접 검증가 0건 · 추정 벤치마크'
+      : `신뢰도 참고 · 가격 표본 ${Number(stats.count || 0)}건`;
+    const confidenceCls = stats.estimated_only ? 'low' : 'ok';
 
     const distParts = ['min', 'p25', 'median', 'p75', 'max', 'avg'].map(k => {
       const v = stats[k];
@@ -1761,6 +1795,7 @@ function renderP2Result(data) {
         <div class="p2-result-meta-title">${title}</div>
         <div>${sub}</div>
         ${tagParts.length ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);">${_escHtml(tagParts.join(' · '))}</div>` : ''}
+        <div class="p2-confidence-strip ${confidenceCls}">${_escHtml(confidenceLabel)}</div>
         ${ratShort ? `<div style="margin-top:10px;line-height:1.6;">${_escHtml(ratShort)}</div>` : ''}
         ${_p2RenderWarnings(classification.warnings || [])}
         ${_p2RenderPriceSources(data)}
@@ -1812,6 +1847,11 @@ function renderP2Result(data) {
     } else {
       dl.innerHTML = '<span style="font-size:12px;color:var(--muted);">생성된 P2 PDF가 없습니다.</span>';
     }
+  }
+
+  if (_p2LastRequestState && _p2LastRequestState.reportId) {
+    _p2MarkReportDone(_p2LastRequestState.reportId, data);
+    try { _syncP3ReportOptions(); } catch (_) {}
   }
 
   sec.style.display = '';
@@ -2703,8 +2743,71 @@ async function loadCompetitorMap(opts) {
 let _p3PollTimer        = null;
 let _p3Buyers           = [];
 let _p3DisplayedBuyers  = [];
+let _p3LastResult       = null;
 let _p3PdfName          = null;
 let _p3SelectedReportId = '';
+
+function _p3SelectedReportEntry() {
+  const id = String(_p3SelectedReportId || '');
+  if (!id) return null;
+  return _loadReports().find(r => String(r.id) === id) || null;
+}
+
+function _p3SelectedReportFull() {
+  const id = String(_p3SelectedReportId || '');
+  return id ? _loadReportFull(id) : null;
+}
+
+function _p3BuildPayloadFromSelectedReport() {
+  const full = _p3SelectedReportFull();
+  if (!full) return null;
+  const payload = {
+    target_country: 'Saudi Arabia',
+    target_region: 'Middle East',
+  };
+  if (full.product_id) payload.product_key = String(full.product_id);
+  const tradeName = String(full.trade_name || full.product || '').trim();
+  const ingredient = String(full.ingredient || full.inn || '').trim();
+  if (!payload.product_key && tradeName) payload.trade_name = tradeName;
+  if (!payload.product_key && ingredient) payload.ingredients = ingredient;
+  if (full.dosage_form) payload.dosage_form = String(full.dosage_form);
+  if (full.strength) payload.strength = String(full.strength);
+  return (payload.product_key || payload.trade_name || payload.ingredients) ? payload : null;
+}
+
+function _p3UpdateReportContext() {
+  const banner = document.getElementById('p3-no-report-banner');
+  const context = document.getElementById('p3-report-context');
+  const btn = document.getElementById('btn-p3-run');
+  const entry = _p3SelectedReportEntry();
+  const full = _p3SelectedReportFull();
+  const done = entry && full && _p2IsReportDone(entry.id);
+
+  if (!entry) {
+    if (banner) { banner.style.display = ''; banner.textContent = '⚠ 시장조사 보고서를 먼저 선택해 주세요.'; }
+    if (context) { context.style.display = 'none'; context.textContent = ''; }
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  if (banner) {
+    banner.style.display = done ? 'none' : '';
+    banner.textContent = full
+      ? '⚠ 선택한 보고서의 가격 산출을 먼저 완료해 주세요.'
+      : '⚠ 선택한 저장 보고서에 전체 데이터가 없습니다. 1공정을 다시 실행해 주세요.';
+  }
+  if (context) {
+    const name = full?.trade_name || entry.product || '선택 보고서';
+    const ingredient = full?.ingredient || full?.inn || entry.inn || '';
+    context.innerHTML = `
+      <strong>연동 품목</strong> ${_escHtml(name)}
+      ${ingredient ? `<span>· ${_escHtml(ingredient)}</span>` : ''}
+      <span class="${done ? 'p3-state-ok' : 'p3-state-warn'}">${done ? '가격산출 완료' : '가격산출 필요'}</span>
+    `;
+    context.style.display = '';
+  }
+  if (btn) btn.disabled = !done;
+}
 
 function _syncP3ReportOptions() {
   const sel = document.getElementById('p3-report-select');
@@ -2713,34 +2816,43 @@ function _syncP3ReportOptions() {
   sel.innerHTML = ['<option value="">시장조사 보고서를 선택하세요</option>']
     .concat(p1Reports.map(r => {
       const name = r.product || r.report_title || '보고서';
-      return `<option value="${r.id}">시장조사 보고서 · ${_escHtml(name)} · ${_escHtml(r.timestamp || '')}</option>`;
+      const doneLabel = _p2IsReportDone(r.id) ? '가격산출 완료' : '가격산출 필요';
+      return `<option value="${r.id}">시장조사 보고서 · ${_escHtml(name)} · ${doneLabel} · ${_escHtml(r.timestamp || '')}</option>`;
     })).join('');
 
-  const noReportBanner = document.getElementById('p3-no-report-banner');
   if (p1Reports.length) {
-    if (noReportBanner) noReportBanner.style.display = 'none';
     if (!_p3SelectedReportId || !p1Reports.find(r => String(r.id) === _p3SelectedReportId)) {
       _p3SelectedReportId = String(p1Reports[0].id);
     }
     sel.value = _p3SelectedReportId;
   } else {
-    if (noReportBanner) noReportBanner.style.display = '';
+    _p3SelectedReportId = '';
   }
+  _p3UpdateReportContext();
 }
 
 function onP3ReportChange() {
   const sel = document.getElementById('p3-report-select');
   _p3SelectedReportId = sel?.value || '';
+  _p3UpdateReportContext();
 }
 
 async function runP3Pipeline() {
   const btn     = document.getElementById('btn-p3-run');
   const icon    = document.getElementById('p3-run-icon');
   const errEl   = document.getElementById('p3-error-msg');
-  const product = document.getElementById('product-select')?.value || 'sereterol-activair';
-  const targetCountry = 'Saudi Arabia';
-  const targetRegion  = 'Middle East';
+  const payload = _p3BuildPayloadFromSelectedReport();
 
+  if (!payload) {
+    if (errEl) { errEl.style.display = ''; errEl.textContent = '오류: 바이어 발굴에 사용할 저장 보고서를 선택하세요.'; }
+    _p3UpdateReportContext();
+    return;
+  }
+  if (!_p2IsReportDone(_p3SelectedReportId)) {
+    if (errEl) { errEl.style.display = ''; errEl.textContent = '오류: 선택한 보고서의 가격 산출을 먼저 완료해 주세요.'; }
+    _p3UpdateReportContext();
+    return;
+  }
   if (btn) btn.disabled = true;
   if (icon) icon.textContent = '…';
   if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
@@ -2755,7 +2867,7 @@ async function runP3Pipeline() {
     const res = await fetch('/api/buyers/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_key: product, target_country: targetCountry, target_region: targetRegion }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (res.status !== 409 && !res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
@@ -2785,12 +2897,12 @@ async function runP3Pipeline() {
     } else if (data.status === 'done') {
       const rr     = await fetch('/api/buyers/result');
       const result = await rr.json();
-      _p3Buyers  = [];
+      _p3LastResult = result || null;
+      _p3Buyers  = result.items || result.buyers || [];
       _p3PdfName = result.pdf || null;
       const secEl = document.getElementById('p3-result-section');
       if (secEl) secEl.style.display = '';
-      const cardsEl = document.getElementById('p3-cards');
-      if (cardsEl) cardsEl.innerHTML = '';
+      _renderP3Cards(_p3Buyers, result);
     }
   } catch (_) {}
 })();
@@ -2807,10 +2919,11 @@ async function _pollP3() {
 
       const rr     = await fetch('/api/buyers/result');
       const result = await rr.json();
+      _p3LastResult = result || null;
       _p3Buyers  = result.items || result.buyers || [];   // 서버는 'items' 반환
       _p3PdfName = result.pdf   || null;
 
-      _renderP3Cards(_p3Buyers);
+      _renderP3Cards(_p3Buyers, result);
       const secEl = document.getElementById('p3-result-section');
       if (secEl) secEl.style.display = '';
       if (_p3PdfName) {
@@ -2835,7 +2948,17 @@ async function _pollP3() {
       if (btn)  btn.disabled = false;
       if (icon) icon.textContent = '▶';
     }
-  } catch (_) {}
+  } catch (e) {
+    if (_p3PollTimer) { clearInterval(_p3PollTimer); _p3PollTimer = null; }
+    const loadEl = document.getElementById('p3-loading-state');
+    if (loadEl) loadEl.style.display = 'none';
+    const errEl = document.getElementById('p3-error-msg');
+    if (errEl) { errEl.style.display = ''; errEl.textContent = '오류: 바이어 발굴 상태를 확인하지 못했습니다. 다시 실행해 주세요.'; }
+    const btn  = document.getElementById('btn-p3-run');
+    const icon = document.getElementById('p3-run-icon');
+    if (btn) btn.disabled = false;
+    if (icon) icon.textContent = '▶';
+  }
 }
 
 function _renderP3Skeleton() {
@@ -2848,10 +2971,41 @@ function _renderP3Skeleton() {
     </div>`).join('');
 }
 
-function _renderP3Cards(buyers) {
+function _p3VerificationTag(b) {
+  if (b.verified) return '<span class="p3-tag p3-tag-verified">웹검증</span>';
+  if (b.needs_manual_verification) return '<span class="p3-tag p3-tag-manual">수동확인</span>';
+  return '<span class="p3-tag p3-tag-info">미검증</span>';
+}
+
+function _renderP3ResultSummary(payload) {
+  const host = document.getElementById('p3-result-summary');
+  if (!host) return;
+  if (!payload) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const product = payload.product || {};
+  const productLabel = [product.trade_name, product.ingredients].filter(Boolean).join(' · ');
+  const pieces = [
+    productLabel ? `기준: ${productLabel}` : '',
+    `총 ${Number(payload.count || 0)}건`,
+    `AI ${Number(payload.ai_count || 0)}건`,
+    `팀 seed ${Number(payload.curated_count || 0)}건`,
+    `제외 ${Number(payload.unverified_dropped || 0)}건`,
+  ].filter(Boolean);
+  host.innerHTML = `
+    <div class="p3-summary-main">${pieces.map(p => `<span>${_escHtml(p)}</span>`).join('')}</div>
+    ${payload.warning ? `<div class="p3-summary-warn">${_escHtml(payload.warning)}</div>` : ''}
+  `;
+  host.style.display = '';
+}
+
+function _renderP3Cards(buyers, payload = null) {
   const wrap = document.getElementById('p3-cards');
   if (!wrap) return;
 
+  _renderP3ResultSummary(payload || _p3LastResult);
   _p3DisplayedBuyers = buyers;
 
   if (!buyers.length) {
@@ -2869,11 +3023,21 @@ function _renderP3Cards(buyers) {
     /* Perplexity 결과: title / domain 필드 사용 */
     const name = b.company_name || b.title || b.domain || '-';
     const sub  = b.country || CAT_KR_CARD[b.category] || b.category || '';
+    const score = b.relevance_score != null ? Number(b.relevance_score).toFixed(2) : '—';
+    const origin = b.candidate_origin === 'curated_saudi_buyer_seed' ? '팀 seed' : 'AI/DB';
+    const tags = [
+      _p3VerificationTag(b),
+      `<span class="p3-tag p3-tag-info">${_escHtml(origin)}</span>`,
+      `<span class="p3-tag p3-tag-info">score ${_escHtml(score)}</span>`,
+      b.has_product_listing ? '<span class="p3-tag p3-tag-product">목록</span>' : '',
+      b.enriched?.has_consumer_health_fit ? '<span class="p3-tag p3-tag-product">건기식 적합</span>' : '',
+    ].filter(Boolean).join('');
     return `<div class="p3-list-row" onclick="showBuyerDetail(${i})">
       <span class="p3-card-rank">${i + 1}</span>
       <div style="flex:1;min-width:0;">
         <div class="p3-list-name">${_escHtml(name)}</div>
         ${sub ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">${_escHtml(sub)}</div>` : ''}
+        <div class="p3-list-tags">${tags}</div>
       </div>
     </div>`;
   }).join('');
@@ -2937,10 +3101,17 @@ function showBuyerDetail(idx) {
     row('도메인', domain),
     row('언어', lang === 'en' ? '영어' : lang === 'ar' ? '아랍어' : lang === 'mixed' ? '혼합' : lang),
     row('유형', catKr),
+    row('후보 출처', b.candidate_origin === 'curated_saudi_buyer_seed' ? '팀 seed' : b.candidate_origin),
+    row('검증 상태', b.verified ? '웹사이트 접속 검증됨' : b.needs_manual_verification ? '수동 검증 필요' : b.verification_status),
+    row('검증 URL', b.verification_url),
     relScore != null ? `<tr><th>관련도</th><td>${relLabel} (${relScore})</td></tr>` : '',
     ynRow('가격 정보 포함', b.has_price_data),
     ynRow('제품 목록 포함', b.has_product_listing),
   ].join('');
+
+  const reasons = Array.isArray(b.reasons) && b.reasons.length
+    ? `<div class="bm-section">근거</div><div class="bm-summary">${b.reasons.slice(0, 5).map(r => `<div>· ${_escHtml(String(r))}</div>`).join('')}</div>`
+    : '';
 
   const urlBlock = url
     ? `<div class="bm-section">링크</div><div class="bm-summary"><a href="${_escHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);word-break:break-all;">${_escHtml(url)}</a></div>`
@@ -2956,6 +3127,7 @@ function showBuyerDetail(idx) {
     </div>
     ${desc ? `<div class="bm-section">기업 소개</div><div class="bm-summary">${_escHtml(desc)}</div>` : ''}
     ${infoRows ? `<div class="bm-section">상세 정보</div><table class="bm-table">${infoRows}</table>` : ''}
+    ${reasons}
     ${urlBlock}
   `;
 

@@ -2128,7 +2128,8 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
   font-size: 11px; color: var(--muted); flex-shrink: 0; min-width: 52px;
 }
 .p3-list-tags {
-  display: flex; gap: 4px; flex-shrink: 0; flex-wrap: nowrap;
+  display: flex; gap: 4px; flex-shrink: 0; flex-wrap: wrap;
+  margin-top: 5px;
 }
 
 /* 구 카드 스타일 (호환용 — 더 이상 사용 안 함) */
@@ -2163,6 +2164,57 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 .p3-tag-p1   { background: var(--green); color: #fff; }
 .p3-tag-p2   { background: var(--orange, #e67e22); color: #fff; }
 .p3-tag-info { background: rgba(23,63,120,.1); color: var(--navy); }
+.p3-tag-verified { background: rgba(39,174,96,.12); color: #176b3a; }
+.p3-tag-manual { background: rgba(230,126,34,.14); color: #9a520d; }
+.p3-tag-product { background: rgba(23,63,120,.12); color: var(--navy); }
+
+.p3-report-context,
+.p3-result-summary,
+.p2-confidence-strip {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  background: rgba(23,63,120,.06);
+  color: var(--navy);
+}
+.p3-report-context strong { font-weight: 900; margin-right: 5px; }
+.p3-report-context span { margin-left: 6px; color: var(--muted); }
+.p3-state-ok,
+.p3-state-warn {
+  display: inline-flex;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 900;
+}
+.p3-state-ok { background: rgba(39,174,96,.13); color: #176b3a !important; }
+.p3-state-warn { background: rgba(230,126,34,.14); color: #9a520d !important; }
+.p3-summary-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.p3-summary-main span {
+  font-weight: 800;
+}
+.p3-summary-warn {
+  margin-top: 5px;
+  color: #9a520d;
+  font-weight: 700;
+}
+.p2-confidence-strip {
+  font-weight: 900;
+}
+.p2-confidence-strip.low {
+  background: rgba(230,126,34,.12);
+  color: #9a520d;
+}
+.p2-confidence-strip.ok {
+  background: rgba(39,174,96,.10);
+  color: #176b3a;
+}
 
 /* 빈 상태 */
 .p3-empty {
@@ -2177,8 +2229,12 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
   .p3-criteria-grid    { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 720px) {
-  .p3-cards-wrap       { grid-template-columns: 1fr; }
+  .p3-cards-wrap       { max-height: none; }
   .p3-criteria-grid    { grid-template-columns: repeat(2, 1fr); }
+  .selector-row        { align-items: stretch; }
+  .selector-row > select { width: 100%; }
+  .p3-list-row         { align-items: flex-start; }
+  .p3-list-name        { white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* P3 평가 항목 헤더 (라벨 + 연동 품목 pill 한 줄) */
@@ -2429,6 +2485,17 @@ select:focus { box-shadow: 0 0 0 3px rgba(23,63,120,.15); }
 .p2-diversity-warn { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(243, 156, 18, 0.12); border: 1px solid rgba(243, 156, 18, 0.35); }
 .p2-diversity-warn-item { font-size: 11.5px; color: #8a5100; line-height: 1.55; font-weight: 700; }
 .p2-diversity-warn-item + .p2-diversity-warn-item { margin-top: 4px; }
+.p2-warnings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.p2-warning-chip {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(230,126,34,.12);
+  color: #9a520d;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
 
 /* Saudi White-Space card wrapper */
 .p3-whitespace-card { background: var(--card); border-radius: 20px; box-shadow: var(--sh); padding: 16px 18px 14px; margin-top: 14px; }

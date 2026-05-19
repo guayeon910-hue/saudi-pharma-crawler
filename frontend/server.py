@@ -12,10 +12,12 @@ frontend/server.py -- 사우디 제약 크롤러 대시보드 서버
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import sys
 import time
 import tempfile
@@ -23,7 +25,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 # ── 프로젝트 루트 계산 ──
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +50,7 @@ sys.path.insert(0, str(ROOT))
 
 from drug_registry import DrugRegistry, TargetDrug
 from targeted_search import search_one_drug, AggregatedResult, _annotate_match
-from frontend.buyer_sources import curated_buyer_candidates, registrable_domain_from_url
+from frontend.buyer_sources import curated_buyer_candidates, infer_product_tags, registrable_domain_from_url
 from frontend.dashboard_sites import SITES, get_initial_states
 from frontend.fob_private import run_private_pipeline, run_public_pipeline
 
@@ -2064,10 +2066,31 @@ def _load_ai_discovered_sources_for_p3(sb) -> list[dict]:
         logger.warning("P3 ai_discovered_sources 조회 실패: %s", exc)
         return []
 
+    buyer_category_terms = (
+        "buyer",
+        "import",
+        "distributor",
+        "distribution",
+        "wholesale",
+        "retail",
+        "pharmacy",
+        "hospital",
+        "procurement",
+        "partner",
+        "healthcare",
+        "consumer",
+    )
     out: list[dict] = []
     for row in rows:
         url = str(row.get("url") or "").strip()
         if not url.startswith("http"):
+            continue
+        category = str(row.get("category") or "registered").strip().lower()
+        country = str(row.get("country") or "").strip().lower()
+        has_listing = bool(row.get("has_product_listing"))
+        is_buyer_like = any(term in category for term in buyer_category_terms)
+        is_sa_or_gcc = country in {"", "sa", "ksa", "saudi", "saudi arabia", "gcc"}
+        if not is_buyer_like and not (has_listing and is_sa_or_gcc):
             continue
         dom = (row.get("domain") or "").strip().lower() or urlparse(url).netloc.lower()
         title = dom or url
@@ -2085,13 +2108,53 @@ def _load_ai_discovered_sources_for_p3(sb) -> list[dict]:
                 "title": title[:300],
                 "description": "팀 DB(ai_discovered_sources) 등록 소스",
                 "relevance_score": score,
-                "category": str(row.get("category") or "registered"),
+                "category": category or "registered",
                 "has_price_data": bool(row.get("has_price_data")),
                 "has_product_listing": bool(row.get("has_product_listing")),
                 "language": "",
             }
         )
     return out
+
+
+def _is_safe_public_http_url(url: str, *, resolve_dns: bool = False) -> bool:
+    """Validate prospect URLs before the server makes outbound requests."""
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
+        return False
+    port = parsed.port
+    if port not in {None, 80, 443}:
+        return False
+
+    def _ip_is_public(value: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError:
+            return True
+        return ip.is_global
+
+    if not _ip_is_public(host):
+        return False
+    if resolve_dns:
+        try:
+            infos = socket.getaddrinfo(host, port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        except OSError:
+            return False
+        for info in infos:
+            ip = info[4][0]
+            if not _ip_is_public(ip):
+                return False
+    return True
 
 
 def _normalize_p3_prospect(item: dict) -> dict:
@@ -2165,6 +2228,9 @@ def _p3_live_url_check(url: str) -> tuple[bool, int | None, str]:
     """Return (reachable, status_code, final_url) for a prospect website."""
     import httpx
 
+    if not _is_safe_public_http_url(url, resolve_dns=True):
+        return False, None, url
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -2172,19 +2238,59 @@ def _p3_live_url_check(url: str) -> tuple[bool, int | None, str]:
         )
     }
     try:
-        with httpx.Client(follow_redirects=True, timeout=6.0, headers=headers) as client:
-            try:
-                resp = client.head(url)
-            except httpx.HTTPError:
-                resp = client.get(url)
-            if resp.status_code in {403, 405} or resp.status_code >= 500:
+        with httpx.Client(follow_redirects=False, timeout=6.0, headers=headers) as client:
+            current_url = url
+            last_status: int | None = None
+            for _ in range(4):
                 try:
-                    resp = client.get(url)
+                    resp = client.head(current_url)
+                    if resp.status_code in {403, 405} or resp.status_code >= 500:
+                        resp = client.get(current_url)
                 except httpx.HTTPError:
-                    pass
-            return 200 <= resp.status_code < 400, resp.status_code, str(resp.url)
+                    resp = client.get(current_url)
+
+                last_status = resp.status_code
+                if 300 <= resp.status_code < 400 and resp.headers.get("location"):
+                    next_url = urljoin(str(resp.url), str(resp.headers["location"]))
+                    if not _is_safe_public_http_url(next_url, resolve_dns=True):
+                        return False, resp.status_code, next_url
+                    current_url = next_url
+                    continue
+                return 200 <= resp.status_code < 400, resp.status_code, str(resp.url)
+            return False, last_status, current_url
     except Exception:
         return False, None, url
+
+
+def _annotate_p3_candidate_scores(items: list[dict], drug_info: dict) -> list[dict]:
+    tags = infer_product_tags(drug_info)
+    for item in items:
+        category = str(item.get("category") or "").lower()
+        portfolio = {str(v).lower() for v in (item.get("portfolio") or [])}
+        desc = f"{item.get('title', '')} {item.get('description', '')}".lower()
+        relevance = float(item.get("relevance_score") or 0.0)
+        fit = len(tags & portfolio)
+        is_pharmacy = category == "pharmacy_chain" or "pharmacy_chain" in portfolio
+        is_distributor = category in {"distributor", "importer"} or {"retail", "hospital"} & portfolio
+        is_manufacturer = category == "other" and any(token in desc for token in ("manufactur", "factory", "production", "pharma"))
+        is_consumer = bool({"inner_beauty", "consumer_health", "supplement"} & tags & portfolio)
+
+        item["scores"] = {
+            "기업규모": min(100, 55 + round(relevance * 25) + (10 if category == "government_procurement" else 0)),
+            "유통실적": min(100, 45 + (25 if is_distributor else 0) + (12 if is_pharmacy else 0) + fit * 5),
+            "GMP보유": 75 if is_manufacturer else (45 if category in {"distributor", "importer"} else 20),
+            "한국거래": 35 if item.get("source") == "curated_saudi_buyer_seed" else 20,
+            "pharmacy_chain": 100 if is_pharmacy else (45 if "retail" in portfolio else 0),
+        }
+        item["enriched"] = {
+            "has_pharmacy_chain": is_pharmacy,
+            "has_consumer_health_fit": is_consumer,
+            "has_distribution_fit": is_distributor,
+        }
+        if is_consumer:
+            item["relevance_score"] = round(min(0.99, relevance + 0.035), 3)
+    items.sort(key=lambda x: (float(x.get("relevance_score") or 0.0), bool(x.get("verified"))), reverse=True)
+    return items
 
 
 def _verify_p3_prospect_items(
@@ -2205,6 +2311,8 @@ def _verify_p3_prospect_items(
         source = str(item.get("source") or "").strip()
         is_curated = source == "curated_saudi_buyer_seed"
 
+        if not _is_safe_public_http_url(url, resolve_dns=False):
+            continue
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or not base_domain:
             continue
         if base_domain in _P3_BLOCKED_PROSPECT_DOMAINS:
@@ -2231,10 +2339,12 @@ def _verify_p3_prospect_items(
         if live_ok:
             item["verified"] = True
             item["verification_status"] = "verified_live_website"
+            item["verification_kind"] = "website_reachable"
         elif is_curated:
             item["verified"] = False
             item["needs_manual_verification"] = True
             item["verification_status"] = "curated_seed_domain_valid_live_check_failed"
+            item["verification_kind"] = "curated_seed_manual_check_required"
         else:
             continue
 
@@ -2299,12 +2409,14 @@ async def api_p3_prospects(req: P3ProspectsRequest):
 
     curated_sources = curated_buyer_candidates(drug_info, limit=30)
     if not pplx:
-        merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        merged = _merge_p3_prospect_lists(curated_sources, db_sources)
         verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
+        verified = _annotate_p3_candidate_scores(verified, drug_info)
         return {
             "ok": True,
             "count": len(verified),
             "items": verified,
+            "product": drug_info,
             "ai_count": 0,
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
@@ -2323,12 +2435,14 @@ async def api_p3_prospects(req: P3ProspectsRequest):
             key=lambda x: float(x.get("relevance_score") or 0.0),
             reverse=True,
         )
-        merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+        merged = _merge_p3_prospect_lists(items_sorted, curated_sources + db_sources)
         verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
+        verified = _annotate_p3_candidate_scores(verified, drug_info)
         return {
             "ok": True,
             "count": len(verified),
             "items": verified,
+            "product": drug_info,
             "ai_count": len(items_sorted),
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
@@ -2336,12 +2450,14 @@ async def api_p3_prospects(req: P3ProspectsRequest):
         }
     except Exception as exc:
         logger.warning("P3 prospects Perplexity 실패, curated buyer seeds 사용: %s", exc)
-        merged = _merge_p3_prospect_lists(db_sources, curated_sources)
+        merged = _merge_p3_prospect_lists(curated_sources, db_sources)
         verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
+        verified = _annotate_p3_candidate_scores(verified, drug_info)
         return {
             "ok": True,
             "count": len(verified),
             "items": verified,
+            "product": drug_info,
             "ai_count": 0,
             "curated_count": len(curated_sources),
             "db_count": len(db_sources),
@@ -3121,12 +3237,14 @@ async def buyers_run(req: BuyersRunRequest):
             else:
                 warning = "PERPLEXITY_API_KEY is not configured; curated Saudi buyer seeds were used."
 
-            merged = _merge_p3_prospect_lists(db_sources, curated_sources + items_sorted)
+            merged = _merge_p3_prospect_lists(items_sorted, curated_sources + db_sources)
             verified = await asyncio.to_thread(_verify_p3_prospect_items, merged)
+            verified = _annotate_p3_candidate_scores(verified, drug_info)
             result_payload = {
                 "ok": True,
                 "count": len(verified),
                 "items": verified,
+                "product": drug_info,
                 "ai_count": len(items_sorted),
                 "curated_count": len(curated_sources),
                 "db_count": len(db_sources),
@@ -3134,17 +3252,18 @@ async def buyers_run(req: BuyersRunRequest):
             }
             if warning:
                 result_payload["warning"] = warning
-            _buyer_task.update({
-                "status": "done",
-                "result": result_payload,
-            })
             # P3 보고서 자동 생성
             try:
                 from report_generator_p3 import generate_p3_report
                 p3_path = generate_p3_report(verified, trade_name or ingredients, ROOT / "reports")
                 _p3_report_cache["latest"] = p3_path.name
+                result_payload["pdf"] = p3_path.name
             except Exception:
                 logger.exception("P3 보고서 자동 생성 실패")
+            _buyer_task.update({
+                "status": "done",
+                "result": result_payload,
+            })
         except Exception as exc:
             logger.warning("Buyers run 실패: %s", exc)
             _buyer_task.update({"status": "error", "error": str(exc)[:200]})
@@ -3177,21 +3296,32 @@ async def buyers_result():
 # P2 / P3 보고서 다운로드 + 최종 합본 생성
 # ───────────────────────────────────────────────────────────────────────────
 
+def _safe_report_docx_path(reports_dir: Path, filename: str) -> Path:
+    name = (filename or "").strip()
+    if not name or Path(name).name != name or not name.lower().endswith(".docx"):
+        raise HTTPException(404, "파일을 찾을 수 없습니다.")
+    root = reports_dir.resolve()
+    target = (root / name).resolve()
+    if not target.is_file() or not target.is_relative_to(root):
+        raise HTTPException(404, "파일을 찾을 수 없습니다.")
+    return target
+
+
 @app.get("/api/p2/report/download")
 async def p2_report_download(filename: Optional[str] = None):
     """SA_02 수출가격전략 DOCX 다운로드."""
     reports_dir = ROOT / "reports"
     if filename:
-        target = reports_dir / filename
-        if not target.is_file() or not target.is_relative_to(reports_dir):
-            raise HTTPException(404, "파일을 찾을 수 없습니다.")
+        target = _safe_report_docx_path(reports_dir, filename)
         return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
 
     cached = _p2_report_cache.get("latest")
     if cached:
-        target = reports_dir / cached
-        if target.is_file():
+        try:
+            target = _safe_report_docx_path(reports_dir, cached)
             return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+        except HTTPException:
+            pass
 
     candidates = sorted(reports_dir.glob("sa_02_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
     if not candidates:
@@ -3204,16 +3334,16 @@ async def p3_report_download(filename: Optional[str] = None):
     """SA_03 바이어리스트 DOCX 다운로드."""
     reports_dir = ROOT / "reports"
     if filename:
-        target = reports_dir / filename
-        if not target.is_file() or not target.is_relative_to(reports_dir):
-            raise HTTPException(404, "파일을 찾을 수 없습니다.")
+        target = _safe_report_docx_path(reports_dir, filename)
         return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
 
     cached = _p3_report_cache.get("latest")
     if cached:
-        target = reports_dir / cached
-        if target.is_file():
+        try:
+            target = _safe_report_docx_path(reports_dir, cached)
             return FileResponse(str(target), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=target.name)
+        except HTTPException:
+            pass
 
     candidates = sorted(reports_dir.glob("sa_03_*.docx"), key=lambda f: f.stat().st_mtime, reverse=True)
     if not candidates:
@@ -3243,9 +3373,9 @@ async def report_final(req: FinalReportRequest):
         files = sorted(reports_dir.glob(pattern), key=lambda f: f.stat().st_mtime, reverse=True)
         return files[0] if files else None
 
-    p1_path = (reports_dir / req.p1_filename) if req.p1_filename else _latest("market_report_*.docx") or _latest("sa_01_*.docx")
-    p2_path = (reports_dir / req.p2_filename) if req.p2_filename else _latest("sa_02_*.docx")
-    p3_path = (reports_dir / req.p3_filename) if req.p3_filename else _latest("sa_03_*.docx")
+    p1_path = _safe_report_docx_path(reports_dir, req.p1_filename) if req.p1_filename else _latest("market_report_*.docx") or _latest("sa_01_*.docx")
+    p2_path = _safe_report_docx_path(reports_dir, req.p2_filename) if req.p2_filename else _latest("sa_02_*.docx")
+    p3_path = _safe_report_docx_path(reports_dir, req.p3_filename) if req.p3_filename else _latest("sa_03_*.docx")
 
     meta = {
         "trade_name":   req.trade_name or "",

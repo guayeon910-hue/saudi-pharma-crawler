@@ -206,6 +206,7 @@
 
                 <div class="selector-card" id="p2-product-list-wrap" style="margin-top:10px;display:none;">
                   <div id="p2-product-list"></div>
+                  <div id="p2-report-dl-state" style="margin-top:12px;"></div>
                 </div>
                 <div class="price-disclaimer">
                   <strong>가격 추정치 안내</strong> — 표시된 <span class="term" data-tip="Free On Board: 수출항 본선 인도 기준 가격. 현지 도착가(CIF)는 운임·보험료가 추가됩니다.">FOB</span> 가격은 수집된 공개 데이터(<span class="term" data-tip="Saudi Food and Drug Authority — 사우디 식약청 등록 의약품 데이터베이스">SFDA</span>·NUPCO·민간 약국) 기반의 역산 추정치입니다. 실제 입찰가·협상가와 차이가 있을 수 있으며, 환율·수수료 가정에 따라 달라집니다. 의사결정 전 현지 에이전트 확인을 권장합니다.
@@ -309,14 +310,15 @@
                 ⚠ 먼저 시장 조사와 가격 산출을 완료해 주세요.
               </div>
 
-              <div class="selector-row" style="margin-top:10px;">
-                <select id="p3-report-select" style="flex:1;" onchange="onP3ReportChange()">
-                  <option value="">시장조사 보고서를 선택하세요</option>
-                </select>
-                <button class="btn-analyze" id="btn-p3-run" onclick="runP3Pipeline()">
-                  <span id="p3-run-icon">▶</span> 바이어 발굴
-                </button>
-              </div>
+                <div class="selector-row" style="margin-top:10px;">
+                  <select id="p3-report-select" style="flex:1;" onchange="onP3ReportChange()">
+                    <option value="">시장조사 보고서를 선택하세요</option>
+                  </select>
+                  <button class="btn-analyze" id="btn-p3-run" onclick="runP3Pipeline()" disabled>
+                    <span id="p3-run-icon">▶</span> 바이어 발굴
+                  </button>
+                </div>
+                <div id="p3-report-context" class="p3-report-context" style="display:none;"></div>
 
               <div id="p3-loading-state" class="p1-simple-loading" style="display:none;">
                 <span class="report-loading-spinner"></span>
@@ -352,6 +354,7 @@
               </div>
 
               <div class="p3-cards-section-title" id="p3-cards-title" style="display:none;">Top 10</div>
+              <div id="p3-result-summary" class="p3-result-summary" style="display:none;"></div>
               <div id="p3-cards" class="p3-cards-wrap"></div>
             </div>
 

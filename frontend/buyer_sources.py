@@ -19,7 +19,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://tamergroup.com/sectors/distribution-healthcare-fmcg",
         "category": "distributor",
         "description": "Saudi healthcare group supplying pharmaceutical, OTC, generic, medical equipment, and hospital products across public and private channels.",
-        "focus": ["general", "hospital", "retail", "respiratory", "cardiovascular", "gastrointestinal"],
+        "focus": ["general", "hospital", "retail", "consumer_health", "supplement", "respiratory", "cardiovascular", "gastrointestinal"],
         "base_score": 0.93,
         "has_product_listing": True,
         "language": "en",
@@ -29,7 +29,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://hc.tamergroup.com/about-us",
         "category": "distributor",
         "description": "Trading company under Tamer with broad Saudi market reach for medical and pharmaceutical products and services.",
-        "focus": ["general", "hospital", "retail"],
+        "focus": ["general", "hospital", "retail", "consumer_health", "supplement"],
         "base_score": 0.91,
         "has_product_listing": True,
         "language": "en",
@@ -39,7 +39,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://order.cigalah.com.sa/about-us",
         "category": "distributor",
         "description": "Saudi importer, warehousing, manufacturing, and distribution group with pharmaceutical healthcare distribution hubs.",
-        "focus": ["general", "hospital", "retail", "cardiovascular", "respiratory"],
+        "focus": ["general", "hospital", "retail", "consumer_health", "supplement", "cardiovascular", "respiratory"],
         "base_score": 0.92,
         "has_product_listing": True,
         "language": "en",
@@ -49,7 +49,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://naghi-group.com/cigalah-group/cigalah-healthcare-sector/",
         "category": "distributor",
         "description": "Healthcare division described as a leading pharmaceutical distribution company in Saudi Arabia with regulatory affairs capability.",
-        "focus": ["general", "hospital", "retail"],
+        "focus": ["general", "hospital", "retail", "consumer_health", "supplement"],
         "base_score": 0.91,
         "has_product_listing": True,
         "language": "en",
@@ -59,7 +59,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://salehiya.com/",
         "category": "distributor",
         "description": "Saudi healthcare organization with GDP warehousing and transportation certification for pharmaceutical products.",
-        "focus": ["general", "hospital", "imaging", "oncology"],
+        "focus": ["general", "hospital", "consumer_health", "supplement", "imaging", "oncology"],
         "base_score": 0.90,
         "has_product_listing": True,
         "language": "en",
@@ -69,7 +69,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://sadsco.com/",
         "category": "distributor",
         "description": "Saudi distributor supplying pharmaceutical, nutritional, cosmetics, medical device, FMCG, hospital tender, retail, and pharmacy channels.",
-        "focus": ["general", "hospital", "retail", "cardiovascular", "respiratory", "gastrointestinal"],
+        "focus": ["general", "hospital", "retail", "consumer_health", "supplement", "cosmetics", "inner_beauty", "cardiovascular", "respiratory", "gastrointestinal"],
         "base_score": 0.90,
         "has_product_listing": True,
         "language": "en",
@@ -79,7 +79,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://idealchoice.sa/",
         "category": "importer",
         "description": "SFDA-authorized importer and distributor that works with major Saudi pharmacy chains and government healthcare tenders.",
-        "focus": ["general", "retail", "pharmacy_chain"],
+        "focus": ["general", "retail", "pharmacy_chain", "consumer_health", "supplement", "inner_beauty"],
         "base_score": 0.88,
         "has_product_listing": True,
         "language": "en",
@@ -99,7 +99,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://nahdi.sa/about-nahdi/our-history/",
         "category": "pharmacy_chain",
         "description": "Large Saudi pharmacy-led retailer with nationwide pharmacy and healthcare service reach.",
-        "focus": ["retail", "pharmacy_chain", "general", "cardiovascular", "respiratory", "gastrointestinal"],
+        "focus": ["retail", "pharmacy_chain", "general", "consumer_health", "supplement", "inner_beauty", "cardiovascular", "respiratory", "gastrointestinal"],
         "base_score": 0.86,
         "has_product_listing": True,
         "language": "en",
@@ -109,7 +109,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://www.al-dawaa.com.sa/en/Al-Dawaa/departments/pharmacies/",
         "category": "pharmacy_chain",
         "description": "Saudi pharmacy chain with more than 900 branches and dedicated purchasing, logistics, and medical equipment departments.",
-        "focus": ["retail", "pharmacy_chain", "general", "cardiovascular", "respiratory", "gastrointestinal"],
+        "focus": ["retail", "pharmacy_chain", "general", "consumer_health", "supplement", "inner_beauty", "cardiovascular", "respiratory", "gastrointestinal"],
         "base_score": 0.86,
         "has_product_listing": True,
         "language": "en",
@@ -119,7 +119,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://pharmaaldawaa.com/",
         "category": "distributor",
         "description": "Saudi partner for domestic and global pharmaceutical companies with nationwide presence and specialist network.",
-        "focus": ["general", "retail", "hospital"],
+        "focus": ["general", "retail", "hospital", "consumer_health", "supplement"],
         "base_score": 0.84,
         "has_product_listing": True,
         "language": "en",
@@ -129,7 +129,7 @@ SAUDI_BUYER_SEEDS: list[dict[str, Any]] = [
         "url": "https://store.whites.net/en/page/about-whites",
         "category": "pharmacy_chain",
         "description": "Saudi retail pharmacy and lifestyle chain that can be screened for consumer and retail pharmaceutical placement.",
-        "focus": ["retail", "pharmacy_chain", "general"],
+        "focus": ["retail", "pharmacy_chain", "general", "consumer_health", "supplement", "cosmetics", "inner_beauty"],
         "base_score": 0.82,
         "has_product_listing": True,
         "language": "en",
@@ -315,11 +315,32 @@ THERAPEUTIC_TERMS: dict[str, tuple[str, ...]] = {
         "functional food",
         "dietary",
     ),
+    "consumer_health": (
+        "consumer health",
+        "otc",
+        "wellness",
+        "cosmetic",
+        "cosmetics",
+        "personal care",
+    ),
+    "supplement": (
+        "supplement",
+        "nutraceutical",
+        "functional food",
+        "dietary",
+        "vitamin",
+        "collagen",
+    ),
 }
 
 
 def registrable_domain_from_host(host: str) -> str:
-    host = (host or "").strip().lower().removeprefix("www.")
+    host = (host or "").strip().lower()
+    if "@" in host:
+        host = host.rsplit("@", 1)[-1]
+    if ":" in host and not host.startswith("["):
+        host = host.split(":", 1)[0]
+    host = host.removeprefix("www.")
     parts = host.split(".")
     if len(parts) >= 3 and ".".join(parts[-2:]) in MULTI_LABEL_PUBLIC_SUFFIXES:
         return ".".join(parts[-3:])
@@ -329,7 +350,7 @@ def registrable_domain_from_host(host: str) -> str:
 
 
 def registrable_domain_from_url(url: str) -> str:
-    return registrable_domain_from_host(urlparse(url or "").netloc)
+    return registrable_domain_from_host(urlparse(url or "").hostname or "")
 
 
 def _base_domain(url: str) -> str:
@@ -360,7 +381,7 @@ def infer_product_tags(drug_info: dict[str, Any]) -> set[str]:
     if "inhal" in text:
         tags.update({"respiratory", "retail"})
     if {"inner_beauty"} & tags:
-        tags.update({"retail", "pharmacy_chain", "general"})
+        tags.update({"retail", "pharmacy_chain", "general", "consumer_health", "supplement"})
     if not tags:
         tags.add("general")
     return tags

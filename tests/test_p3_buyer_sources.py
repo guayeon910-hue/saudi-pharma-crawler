@@ -1,9 +1,17 @@
+from fastapi.testclient import TestClient
+
+import frontend.server as server
 from frontend.buyer_sources import (
     curated_buyer_candidates,
     infer_product_tags,
     registrable_domain_from_url,
 )
-from frontend.server import _merge_p3_prospect_lists, _verify_p3_prospect_items
+from frontend.server import (
+    _annotate_p3_candidate_scores,
+    _is_safe_public_http_url,
+    _merge_p3_prospect_lists,
+    _verify_p3_prospect_items,
+)
 
 
 def test_curated_buyer_candidates_provide_practical_outreach_pool():
@@ -110,3 +118,93 @@ def test_p3_verifier_keeps_curated_seed_with_verification_metadata():
     assert verified[0]["needs_manual_verification"] is True
     assert verified[0]["verification_status"]
     assert verified[0]["base_domain"]
+
+
+def test_p3_url_guard_blocks_private_and_local_targets():
+    assert _is_safe_public_http_url("http://127.0.0.1:8000/admin") is False
+    assert _is_safe_public_http_url("http://localhost:8000/admin") is False
+    assert _is_safe_public_http_url("http://169.254.169.254/latest/meta-data") is False
+    assert _is_safe_public_http_url("file:///etc/passwd") is False
+    assert _is_safe_public_http_url("https://example.com:8443/path") is False
+    assert _is_safe_public_http_url("https://example.com/path") is True
+
+
+def test_agatri_buyer_candidates_surface_consumer_health_fit():
+    buyers = curated_buyer_candidates(
+        {
+            "trade_name": "Agatri",
+            "ingredients": "Agastache rugosa extract skin beauty supplement",
+            "dosage_form": "Powder",
+        },
+        limit=10,
+    )
+    scored = _annotate_p3_candidate_scores(buyers, {
+        "trade_name": "Agatri",
+        "ingredients": "Agastache rugosa extract skin beauty supplement",
+        "dosage_form": "Powder",
+    })
+
+    assert any(item.get("enriched", {}).get("has_consumer_health_fit") for item in scored[:8])
+    assert any("supplement" in set(item.get("portfolio") or []) for item in scored[:8])
+
+
+def test_p3_prospects_no_pplx_returns_agatri_curated_pool(monkeypatch):
+    def fake_verify(items, max_live_checks=24):
+        return [
+            {
+                **item,
+                "verified": True,
+                "verification_status": "verified_live_website",
+                "candidate_origin": item.get("source") or "test",
+            }
+            for item in items[:5]
+        ]
+
+    monkeypatch.setattr(server, "_get_pplx", lambda: None)
+    monkeypatch.setattr(server, "_get_supabase", lambda: None)
+    monkeypatch.setattr(server, "_verify_p3_prospect_items", fake_verify)
+
+    with TestClient(server.app) as client:
+        response = client.post("/api/p3/prospects", json={"product_key": "agatri"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["count"] > 0
+    assert payload["curated_count"] > 0
+    assert payload["items"][0]["scores"]
+
+
+def test_p3_prospects_prioritizes_ai_result_before_curated(monkeypatch):
+    class FakePplx:
+        def search_pharma_sources(self, drug_info, excluded_domains):
+            return [
+                {
+                    "url": "https://ai-buyer.example.org",
+                    "title": "AI Buyer",
+                    "category": "distributor",
+                    "relevance_score": 0.995,
+                }
+            ]
+
+    def fake_verify(items, max_live_checks=24):
+        return [
+            {
+                **item,
+                "verified": True,
+                "verification_status": "verified_live_website",
+                "candidate_origin": item.get("source") or "ai_or_database",
+            }
+            for item in items[:6]
+        ]
+
+    monkeypatch.setattr(server, "_get_pplx", lambda: FakePplx())
+    monkeypatch.setattr(server, "_get_supabase", lambda: None)
+    monkeypatch.setattr(server, "_verify_p3_prospect_items", fake_verify)
+
+    with TestClient(server.app) as client:
+        response = client.post("/api/p3/prospects", json={"product_key": "agatri"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["title"] == "AI Buyer"

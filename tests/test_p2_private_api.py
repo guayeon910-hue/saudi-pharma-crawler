@@ -156,3 +156,36 @@ def test_public_ai_with_report_data_returns_scenarios(client):
     assert payload["market_type"] == "public"
     assert "scenarios" in payload
     assert "aggressive" in payload["scenarios"]
+
+
+def test_private_ai_agatri_without_prices_returns_benchmark(client):
+    response = client.post(
+        "/api/p2/price-analyze",
+        data={
+            "input_mode": "ai",
+            "market_type": "private",
+            "report_id": "agatri",
+            "report_data": json.dumps(
+                {
+                    "trade_name": "Agatri",
+                    "ingredient": "Agastache rugosa extract",
+                    "drug_type": "Health functional food / inner beauty ingredient",
+                    "dosage_form": "powder",
+                    "price_comparison": {"same_ingredient": [], "competitors": []},
+                }
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["competitor_stats"]["estimated_only"] is True
+    assert any(src["source"] == "health_functional_benchmark" for src in payload["price_pool_sources"])
+
+
+def test_report_download_rejects_path_traversal():
+    with TestClient(server.app) as client:
+        response = client.get("/api/p2/report/download", params={"filename": "../.env"})
+
+    assert response.status_code == 404
